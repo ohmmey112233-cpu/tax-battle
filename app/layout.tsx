@@ -13,11 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Starter Project",
-  description: "A clean starting point for building your site.",
-  other: {
-    "codex-preview": "development",
-  },
+  title: "Tax Battle",
+  description:
+    "เกมตอบคำถามภาษีแบบสดสำหรับห้องเรียน รองรับผู้เล่นสูงสุด 120 คน",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
@@ -30,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="th">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
