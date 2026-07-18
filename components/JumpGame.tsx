@@ -708,9 +708,6 @@ export function JumpGame({
       <canvas ref={canvasRef} className="jump-canvas" aria-label="เกมกระโดดขึ้นที่สูง" />
       {toast && <button className="jump-toast" onClick={() => setToast("")}>{toast}<span>×</span></button>}
       <div className="jump-controls" aria-label="ปุ่มควบคุมเกม">
-        <button className="jump-button" onPointerDown={(event) => { event.preventDefault(); jump(); }} aria-label="กระโดด">
-          <span>↑</span><strong>กระโดด</strong><small>กดได้เมื่อแตะพื้น</small>
-        </button>
         <div className="move-pad" aria-label="ปุ่มเดินซ้ายและขวา">
           <button
             className="move-button"
@@ -725,6 +722,9 @@ export function JumpGame({
             aria-label="เดินขวา"
           >→</button>
         </div>
+        <button className="jump-button" onPointerDown={(event) => { event.preventDefault(); jump(); }} aria-label="กระโดด">
+          <span>↑</span><strong>กระโดด</strong><small>กดได้เมื่อแตะพื้น</small>
+        </button>
       </div>
 
       {quizOpen && (

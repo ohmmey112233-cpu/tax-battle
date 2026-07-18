@@ -995,7 +995,7 @@ input:focus { box-shadow: 0 0 0 5px rgba(0,229,255,.1); }
 .jump-level-chip { position: absolute; z-index: 8; top: 123px; left: 50%; padding: 6px 11px; transform: translateX(-50%); border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: rgba(5,11,18,.62); color: #e2fbff; font-size: 10px; font-weight: 750; white-space: nowrap; }
 .jump-toast { position: absolute; z-index: 9; top: 158px; left: 50%; width: min(88%, 460px); min-height: 42px; padding: 8px 35px 8px 14px; transform: translateX(-50%); border: 1px solid rgba(183,255,60,.25); border-radius: 13px; background: rgba(5,11,18,.82); color: #efffc9; font-size: 11px; font-weight: 750; box-shadow: 0 9px 30px rgba(0,0,0,.22); }
 .jump-toast span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); }
-.jump-controls { position: absolute; z-index: 12; left: 13px; right: 13px; bottom: max(13px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: minmax(118px, .88fr) minmax(176px, 1.12fr); gap: 12px; align-items: end; }
+.jump-controls { position: absolute; z-index: 12; left: 13px; right: 13px; bottom: max(13px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: minmax(176px, 1.12fr) minmax(118px, .88fr); gap: 12px; align-items: end; }
 .jump-controls button { border: 1px solid rgba(255,255,255,.23); color: white; backdrop-filter: blur(12px); box-shadow: 0 12px 28px rgba(0,0,0,.3); touch-action: none; }
 .move-pad { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .move-button { width: 100%; height: 76px; border-radius: 22px; background: rgba(5,11,18,.78); font-size: 31px; font-weight: 900; }
@@ -1057,7 +1057,7 @@ input:focus { box-shadow: 0 0 0 5px rgba(0,229,255,.1); }
   .host-jump-ranking { padding: 14px 10px; }
   .host-jump-ranking-head { align-items: flex-start; flex-direction: column; }
   .jump-game-shell { width: auto; height: calc(100dvh - 68px); min-height: 480px; margin: 0 -16px; border: 0; border-radius: 0; }
-  .jump-controls { grid-template-columns: minmax(108px, .82fr) minmax(166px, 1.18fr); gap: 9px; }
+  .jump-controls { grid-template-columns: minmax(166px, 1.18fr) minmax(108px, .82fr); gap: 9px; }
   .move-button { height: 70px; }
   .jump-button { min-height: 76px; }
   .jump-quiz-overlay { padding: 8px; align-items: center; }

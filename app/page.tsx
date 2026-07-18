@@ -254,6 +254,12 @@ function SetupScreen({ onBack, onCreated }: {
     }
   }, [customLibraryReady, customQuestions]);
 
+  function changeMode(nextMode: GameMode) {
+    if (nextMode === gameMode) return;
+    setGameMode(nextMode);
+    changeCount(nextMode === "jump" ? 20 : 10);
+  }
+
   function changeCount(nextCount: number) {
     const nextCustom = selectedCustom.slice(0, nextCount);
     const recommendedSlots = nextCount - nextCustom.length;
@@ -445,12 +451,12 @@ function SetupScreen({ onBack, onCreated }: {
           </div>
           <p>เลือกชุดคำถามและเวลาให้พร้อมก่อนเปิดห้อง การตั้งค่าจะถูกล็อกทันทีเมื่อสร้างห้อง</p>
           <div className="mode-selector" aria-label="เลือกโหมดเกม">
-            <button className={gameMode === "quiz" ? "active" : ""} onClick={() => setGameMode("quiz")}>
+            <button className={gameMode === "quiz" ? "active" : ""} onClick={() => changeMode("quiz")}>
               <span className="mode-icon">◆</span>
               <span><strong>Quiz Battle</strong><small>ตอบพร้อมกันแบบคลาสสิก</small></span>
               <i>{gameMode === "quiz" ? "✓" : ""}</i>
             </button>
-            <button className={gameMode === "jump" ? "active jump" : "jump"} onClick={() => setGameMode("jump")}>
+            <button className={gameMode === "jump" ? "active jump" : "jump"} onClick={() => changeMode("jump")}>
               <span className="mode-icon">↗</span>
               <span><strong>Jump Battle</strong><small>กระโดดให้สูง ตอบ Quiz เติมพลัง</small></span>
               <i>{gameMode === "jump" ? "✓" : ""}</i>
