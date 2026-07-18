@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Tax Battle",
   description:
-    "เกมตอบคำถามภาษีแบบสดสำหรับห้องเรียน รองรับผู้เล่นสูงสุด 120 คน",
+    "เกมตอบคำถามภาษีแบบสดสำหรับห้องเรียน รองรับผู้เล่นสูงสุด 150 คน",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

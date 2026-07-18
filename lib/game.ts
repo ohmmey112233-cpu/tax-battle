@@ -121,7 +121,7 @@ export async function getRoomSnapshot(
     .from(players)
     .where(eq(players.roomId, room.id))
     .orderBy(desc(players.score), desc(players.correctCount), asc(players.totalResponseMs))
-    .limit(isHost || room.phase === "finished" ? 120 : 10);
+    .limit(isHost || room.phase === "finished" ? room.maxPlayers : 10);
 
   let myAnswer = null;
   if (player && room.currentQuestion >= 0) {

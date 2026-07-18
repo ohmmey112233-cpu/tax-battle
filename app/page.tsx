@@ -113,7 +113,7 @@ function HomeScreen({ onJoin, onCreate }: { onJoin: (code: string) => void; onCr
     <main className="home-shell">
       <nav className="topbar">
         <Brand />
-        <StatusPill>สูงสุด 120 คน</StatusPill>
+        <StatusPill>สูงสุด 150 คน</StatusPill>
       </nav>
 
       <section className="hero-grid">
@@ -609,7 +609,7 @@ function HostScreen({ code, token }: { code: string; token: string }) {
           </div>
           <div className="lobby-roster">
             <div className="roster-heading">
-              <div><p>ผู้เล่นพร้อมแล้ว</p><strong>{snapshot.room.playerCount}<small>/120</small></strong></div>
+              <div><p>ผู้เล่นพร้อมแล้ว</p><strong>{snapshot.room.playerCount}<small>/{snapshot.room.maxPlayers}</small></strong></div>
               <div className="lobby-status-stack">
                 <StatusPill tone="lime">กำลังรอ</StatusPill>
                 <StatusPill>{snapshot.room.questionCount} ข้อ · {snapshot.room.questionSeconds} วินาที/ข้อ</StatusPill>
@@ -718,7 +718,7 @@ function PlayerScreen({ code, token }: { code: string; token: string }) {
           <p className="eyebrow">เข้าห้อง {code} แล้ว</p>
           <h1>พร้อมแล้ว!</h1>
           <p>รอผู้สอนเริ่มเกม หน้านี้จะเปลี่ยนอัตโนมัติ</p>
-          <div className="waiting-count">ผู้เล่นในห้อง <strong>{snapshot.room.playerCount}</strong>/120</div>
+          <div className="waiting-count">ผู้เล่นในห้อง <strong>{snapshot.room.playerCount}</strong>/{snapshot.room.maxPlayers}</div>
         </section>
       )}
 

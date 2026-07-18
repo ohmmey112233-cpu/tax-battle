@@ -14,7 +14,7 @@ export const rooms = sqliteTable(
     selectedQuestions: text("selected_questions")
       .notNull()
       .default("[0,1,2,3,4,5,6,7,8,9]"),
-    maxPlayers: integer("max_players").notNull().default(120),
+    maxPlayers: integer("max_players").notNull().default(150),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

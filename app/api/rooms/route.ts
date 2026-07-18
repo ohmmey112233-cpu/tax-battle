@@ -55,7 +55,7 @@ export async function POST(request: Request) {
         questionCount,
         questionSeconds,
         selectedQuestions: JSON.stringify(selectedQuestions),
-        maxPlayers: 120,
+        maxPlayers: 150,
         createdAt: now,
         updatedAt: now,
       });
