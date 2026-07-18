@@ -31,6 +31,15 @@ npm run deploy
 
 คำสั่ง `db:create` จะสร้างฐานข้อมูล `tax-battle-db` และเพิ่ม D1 binding ชื่อ `DB` ลงใน `wrangler.jsonc` โดยอัตโนมัติ
 
+## เผยแพร่อัตโนมัติจาก GitHub
+
+Repository มี GitHub Actions สำหรับสร้าง D1, ลง migration และเผยแพร่ Worker อัตโนมัติ ให้เพิ่ม repository secrets สองรายการ:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+
+API Token ต้องมีสิทธิ์ Account Settings Read, Workers Scripts Edit และ D1 Edit จากนั้นเปิดแท็บ Actions และรัน workflow `Deploy Tax Battle to Cloudflare` หรือ push ไปที่ branch `main`
+
 ## พัฒนาในเครื่อง
 
 ```bash
