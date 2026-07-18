@@ -161,6 +161,7 @@ function HomeScreen({ onJoin, onCreate }: { onJoin: (code: string) => void; onCr
   );
 }
 
+const QUESTION_COUNTS = [5, 10, 15, 20] as const;
 const QUESTION_TIMES = [5, 10, 15, 20] as const;
 
 type CustomQuestion = {
@@ -175,8 +176,10 @@ function SetupScreen({ onBack, onCreated }: {
   onBack: () => void;
   onCreated: (code: string, token: string) => void;
 }) {
-  const [selected, setSelected] = useState<number[]>(QUESTIONS.map((_, index) => index));
+  const [questionCount, setQuestionCount] = useState(10);
+  const [selected, setSelected] = useState<number[]>(QUESTIONS.slice(0, 10).map((_, index) => index));
   const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([]);
+  const [selectedCustom, setSelectedCustom] = useState<string[]>([]);
   const [customPrompt, setCustomPrompt] = useState("");
   const [customOptions, setCustomOptions] = useState<[string, string, string, string]>(["", "", "", ""]);
   const [customCorrectIndex, setCustomCorrectIndex] = useState(0);
@@ -186,18 +189,47 @@ function SetupScreen({ onBack, onCreated }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const questionCount = selected.length + customQuestions.length;
+  const selectedCount = selected.length + selectedCustom.length;
+
+  function changeCount(nextCount: number) {
+    const nextCustom = selectedCustom.slice(0, nextCount);
+    const recommendedSlots = nextCount - nextCustom.length;
+    setQuestionCount(nextCount);
+    setSelectedCustom(nextCustom);
+    setSelected((current) => {
+      const next = [...current].sort((a, b) => a - b).slice(0, recommendedSlots);
+      for (let index = 0; next.length < recommendedSlots && index < QUESTIONS.length; index += 1) {
+        if (!next.includes(index)) next.push(index);
+      }
+      return next.sort((a, b) => a - b);
+    });
+    setError("");
+    setNotice("");
+  }
 
   function toggleQuestion(index: number) {
     setSelected((current) => {
       if (current.includes(index)) return current.filter((item) => item !== index);
-      if (current.length + customQuestions.length >= 20) {
-        setError("เลือกครบ 20 ข้อแล้ว กรุณาเอาข้อหนึ่งออกก่อน");
+      if (current.length + selectedCustom.length >= questionCount) {
+        setError(`เลือกครบ ${questionCount} ข้อแล้ว กรุณาเอาข้อหนึ่งออกก่อน`);
         return current;
       }
       setError("");
       setNotice("");
       return [...current, index].sort((a, b) => a - b);
+    });
+  }
+
+  function toggleCustomQuestion(id: string) {
+    setSelectedCustom((current) => {
+      if (current.includes(id)) return current.filter((item) => item !== id);
+      if (current.length + selected.length >= questionCount) {
+        setError(`เลือกครบ ${questionCount} ข้อแล้ว กรุณาเอาข้อหนึ่งออกก่อน`);
+        return current;
+      }
+      setError("");
+      setNotice("");
+      return [...current, id];
     });
   }
 
@@ -217,24 +249,19 @@ function SetupScreen({ onBack, onCreated }: {
       setError("กรุณาใส่ตัวเลือกให้ครบทั้ง 4 ตัวเลือก");
       return;
     }
-    if (questionCount >= 20 && selected.length === 0) {
-      setError("มีคำถามเพิ่มเองครบ 20 ข้อแล้ว กรุณาลบหนึ่งข้อก่อน");
-      return;
-    }
-
-    if (questionCount >= 20) {
-      setSelected((current) => current.slice(0, -1));
-      setNotice("เพิ่มคำถามแล้ว และนำคำถามแนะนำลำดับท้ายออก 1 ข้อเพื่อคงจำนวนสูงสุด 20 ข้อ");
-    } else {
-      setNotice("เพิ่มคำถามของคุณแล้ว");
-    }
+    const id = crypto.randomUUID();
+    const shouldSelect = selectedCount < questionCount;
     setCustomQuestions((current) => [...current, {
-      id: crypto.randomUUID(),
+      id,
       prompt,
       options,
       correctIndex: customCorrectIndex,
       explanation: customExplanation.trim(),
     }]);
+    if (shouldSelect) setSelectedCustom((current) => [...current, id]);
+    setNotice(shouldSelect
+      ? "เพิ่มและเลือกคำถามของคุณแล้ว"
+      : `เพิ่มคำถามแล้ว แต่ยังไม่ได้เลือก เพราะเลือกครบ ${questionCount} ข้อแล้ว`);
     setCustomPrompt("");
     setCustomOptions(["", "", "", ""]);
     setCustomCorrectIndex(0);
@@ -244,13 +271,14 @@ function SetupScreen({ onBack, onCreated }: {
 
   function deleteCustomQuestion(id: string) {
     setCustomQuestions((current) => current.filter((question) => question.id !== id));
+    setSelectedCustom((current) => current.filter((item) => item !== id));
     setNotice("ลบคำถามเพิ่มเองแล้ว คุณสามารถเลือกคำถามแนะนำกลับเข้ามาได้");
     setError("");
   }
 
   async function createRoom() {
-    if (questionCount < 1 || questionCount > 20) {
-      setError("กรุณาเลือกคำถามรวมตั้งแต่ 1 ถึง 20 ข้อ");
+    if (selectedCount !== questionCount) {
+      setError(`กรุณาเลือกคำถามให้ครบ ${questionCount} ข้อ`);
       return;
     }
     setBusy(true);
@@ -263,7 +291,7 @@ function SetupScreen({ onBack, onCreated }: {
           body: JSON.stringify({
             questionSeconds,
             selectedQuestions: selected,
-            customQuestions: customQuestions.map(({ prompt, options, correctIndex, explanation }) => ({
+            customQuestions: customQuestions.filter((question) => selectedCustom.includes(question.id)).map(({ prompt, options, correctIndex, explanation }) => ({
               prompt,
               options,
               correctIndex,
@@ -293,95 +321,111 @@ function SetupScreen({ onBack, onCreated }: {
           <p className="eyebrow">HOST CONTROL</p>
           <div className="setup-heading-line">
             <h1>ตั้งค่าสนามแข่งขัน</h1>
-            <div className="current-question-count"><span>คำถามปัจจุบัน</span><strong>{questionCount}/20</strong></div>
+            <div className="current-question-count"><span>เลือกแล้ว</span><strong>{selectedCount}/{questionCount}</strong></div>
           </div>
           <p>เลือกชุดคำถามและเวลาให้พร้อมก่อนเปิดห้อง การตั้งค่าจะถูกล็อกทันทีเมื่อสร้างห้อง</p>
         </header>
 
-        <section className="setup-step custom-question-step">
-          <div className="step-title"><span className="step-number">1</span><div><h2>เพิ่มคำถามเอง</h2><p>คำถามของคุณจะอยู่ก่อนคำถามแนะนำในลำดับการเล่น</p></div></div>
-          <form className="custom-question-form" onSubmit={addCustomQuestion}>
-            <label className="custom-field custom-prompt-field">
-              <span>คำถาม</span>
-              <textarea maxLength={300} placeholder="พิมพ์คำถามที่ต้องการใช้ในเกม" value={customPrompt} onChange={(event) => setCustomPrompt(event.target.value)} />
-            </label>
-            <div className="custom-options-grid">
-              {customOptions.map((option, index) => (
-                <label className="custom-field" key={index}>
-                  <span>ตัวเลือก {String.fromCharCode(65 + index)}</span>
-                  <input maxLength={160} placeholder={`คำตอบ ${String.fromCharCode(65 + index)}`} value={option} onChange={(event) => updateCustomOption(index, event.target.value)} />
-                </label>
-              ))}
-            </div>
-            <div className="custom-form-bottom">
-              <div>
-                <label>คำตอบที่ถูกต้อง</label>
-                <div className="correct-answer-picker">
-                  {customOptions.map((_, index) => (
-                    <button type="button" className={customCorrectIndex === index ? "active" : ""} onClick={() => setCustomCorrectIndex(index)} key={index}>{String.fromCharCode(65 + index)}</button>
-                  ))}
-                </div>
-              </div>
-              <label className="custom-field explanation-field">
-                <span>คำอธิบายเพิ่มเติม (ไม่บังคับ)</span>
-                <textarea maxLength={500} placeholder="อธิบายเฉลยสั้นๆ" value={customExplanation} onChange={(event) => setCustomExplanation(event.target.value)} />
-              </label>
-            </div>
-            <button className="add-question-button" type="submit">
-              {questionCount >= 20 ? "+ เพิ่มและแทนที่คำถามแนะนำ 1 ข้อ" : "+ เพิ่มคำถามนี้"}
-            </button>
-          </form>
-
-          {customQuestions.length > 0 && (
-            <div className="custom-question-list">
-              <h3>คำถามที่เพิ่มเอง <span>{customQuestions.length} ข้อ</span></h3>
-              {customQuestions.map((question, index) => (
-                <article className="custom-question-item" key={question.id}>
-                  <span className="question-index">C{String(index + 1).padStart(2, "0")}</span>
-                  <div><strong>{question.prompt}</strong><p>คำตอบ: {String.fromCharCode(65 + question.correctIndex)} · {question.options[question.correctIndex]}</p></div>
-                  <button onClick={() => deleteCustomQuestion(question.id)} aria-label={`ลบคำถาม ${question.prompt}`}>ลบ</button>
-                </article>
-              ))}
-            </div>
-          )}
+        <section className="setup-step">
+          <div className="step-title"><span className="step-number">1</span><div><h2>จำนวนคำถาม</h2><p>เลือกจำนวนข้อที่ต้องการใช้ในเกม</p></div></div>
+          <div className="segmented" aria-label="จำนวนคำถาม">
+            {QUESTION_COUNTS.map((count) => (
+              <button key={count} className={questionCount === count ? "active" : ""} onClick={() => changeCount(count)}>{count} ข้อ</button>
+            ))}
+          </div>
         </section>
 
         <section className="setup-step question-step">
-          <div className="step-title"><span className="step-number">2</span><div><h2>คำถามแนะนำ</h2><p>เลือกไว้ทั้งหมดเป็นค่าเริ่มต้น และสามารถเอาออกเพื่อเพิ่มคำถามของคุณได้</p></div></div>
-          <div className={`selection-summary ${questionCount === 20 ? "complete" : ""}`}>
-            จำนวนคำถามปัจจุบัน <strong>{questionCount}/20</strong> ข้อ · คำถามแนะนำที่เลือก {selected.length} ข้อ
+          <div className="step-title"><span className="step-number">2</span><div><h2>คำถาม</h2><p>เพิ่มคำถามเองหรือเลือกจากคำถามแนะนำให้ครบจำนวนที่กำหนด</p></div></div>
+          <div className={`selection-summary ${selectedCount === questionCount ? "complete" : ""}`}>
+            เลือกแล้ว <strong>{selectedCount}/{questionCount}</strong> ข้อ
           </div>
-          <div className="question-picker">
-            {QUESTIONS.map((question, index) => {
-              const isSelected = selected.includes(index);
-              const isExpanded = expanded === index;
-              return (
-                <article className={`question-card ${isSelected ? "selected" : ""}`} key={question.prompt}>
-                  <div className="question-card-head">
-                    <button className="question-toggle" onClick={() => toggleQuestion(index)} aria-pressed={isSelected}>
-                      <span className="question-check">{isSelected ? "✓" : ""}</span>
-                      <span className="question-index">{String(index + 1).padStart(2, "0")}</span>
-                      <span className="question-copy">{question.prompt}</span>
-                    </button>
-                    <button className="detail-button" onClick={() => setExpanded(isExpanded ? null : index)} aria-expanded={isExpanded}>
-                      {isExpanded ? "ซ่อน" : "ดูรายละเอียด"}
-                    </button>
+
+          <div className="question-section-block">
+            <div className="question-subheading"><div><span>เพิ่มเอง</span><h3>คำถามเพิ่มเอง</h3></div><small>{selectedCustom.length} ข้อที่เลือก</small></div>
+            <form className="custom-question-form" onSubmit={addCustomQuestion}>
+              <label className="custom-field custom-prompt-field">
+                <span>คำถาม</span>
+                <textarea maxLength={300} placeholder="พิมพ์คำถามที่ต้องการใช้ในเกม" value={customPrompt} onChange={(event) => setCustomPrompt(event.target.value)} />
+              </label>
+              <div className="custom-options-grid">
+                {customOptions.map((option, index) => (
+                  <label className="custom-field" key={index}>
+                    <span>ตัวเลือก {String.fromCharCode(65 + index)}</span>
+                    <input maxLength={160} placeholder={`คำตอบ ${String.fromCharCode(65 + index)}`} value={option} onChange={(event) => updateCustomOption(index, event.target.value)} />
+                  </label>
+                ))}
+              </div>
+              <div className="custom-form-bottom">
+                <div>
+                  <label>คำตอบที่ถูกต้อง</label>
+                  <div className="correct-answer-picker">
+                    {customOptions.map((_, index) => (
+                      <button type="button" className={customCorrectIndex === index ? "active" : ""} onClick={() => setCustomCorrectIndex(index)} key={index}>{String.fromCharCode(65 + index)}</button>
+                    ))}
                   </div>
-                  {isExpanded && (
-                    <div className="question-details">
-                      <div className="option-preview-grid">
-                        {question.options.map((option, optionIndex) => (
-                          <span className={optionIndex === question.correctIndex ? "correct" : ""} key={option}>
-                            {ANSWER_ICONS[optionIndex]} {option}{optionIndex === question.correctIndex ? " ✓" : ""}
-                          </span>
-                        ))}
-                      </div>
-                      <p><strong>คำอธิบาย:</strong> {question.explanation}</p>
+                </div>
+                <label className="custom-field explanation-field">
+                  <span>คำอธิบายเพิ่มเติม (ไม่บังคับ)</span>
+                  <textarea maxLength={500} placeholder="อธิบายเฉลยสั้นๆ" value={customExplanation} onChange={(event) => setCustomExplanation(event.target.value)} />
+                </label>
+              </div>
+              <button className="add-question-button" type="submit">+ เพิ่มคำถามนี้</button>
+            </form>
+
+            {customQuestions.length > 0 && (
+              <div className="custom-question-list">
+                {customQuestions.map((question, index) => {
+                  const isSelected = selectedCustom.includes(question.id);
+                  return (
+                    <article className={`custom-question-item ${isSelected ? "selected" : ""}`} key={question.id}>
+                      <button className="custom-question-toggle" onClick={() => toggleCustomQuestion(question.id)} aria-pressed={isSelected}>
+                        <span className="question-check">{isSelected ? "✓" : ""}</span>
+                        <span className="question-index">C{String(index + 1).padStart(2, "0")}</span>
+                        <span><strong>{question.prompt}</strong><small>คำตอบ: {String.fromCharCode(65 + question.correctIndex)} · {question.options[question.correctIndex]}</small></span>
+                      </button>
+                      <button className="delete-custom-question" onClick={() => deleteCustomQuestion(question.id)} aria-label={`ลบคำถาม ${question.prompt}`}>ลบ</button>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="question-section-block recommended-question-block">
+            <div className="question-subheading"><div><span>พร้อมใช้</span><h3>คำถามแนะนำ</h3></div><small>{selected.length} ข้อที่เลือก</small></div>
+            <div className="question-picker">
+              {QUESTIONS.map((question, index) => {
+                const isSelected = selected.includes(index);
+                const isExpanded = expanded === index;
+                return (
+                  <article className={`question-card ${isSelected ? "selected" : ""}`} key={question.prompt}>
+                    <div className="question-card-head">
+                      <button className="question-toggle" onClick={() => toggleQuestion(index)} aria-pressed={isSelected}>
+                        <span className="question-check">{isSelected ? "✓" : ""}</span>
+                        <span className="question-index">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="question-copy">{question.prompt}</span>
+                      </button>
+                      <button className="detail-button" onClick={() => setExpanded(isExpanded ? null : index)} aria-expanded={isExpanded}>
+                        {isExpanded ? "ซ่อน" : "ดูรายละเอียด"}
+                      </button>
                     </div>
-                  )}
-                </article>
-              );
-            })}
+                    {isExpanded && (
+                      <div className="question-details">
+                        <div className="option-preview-grid">
+                          {question.options.map((option, optionIndex) => (
+                            <span className={optionIndex === question.correctIndex ? "correct" : ""} key={option}>
+                              {ANSWER_ICONS[optionIndex]} {option}{optionIndex === question.correctIndex ? " ✓" : ""}
+                            </span>
+                          ))}
+                        </div>
+                        <p><strong>คำอธิบาย:</strong> {question.explanation}</p>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
           </div>
         </section>
 
@@ -399,8 +443,8 @@ function SetupScreen({ onBack, onCreated }: {
       </div>
 
       <div className="setup-actionbar">
-        <div><span>พร้อมสร้างห้อง</span><strong>{questionCount} ข้อ · {questionSeconds} วินาที/ข้อ</strong></div>
-        <button className="start-button" onClick={createRoom} disabled={busy || questionCount < 1 || questionCount > 20}>
+        <div><span>{selectedCount === questionCount ? "พร้อมสร้างห้อง" : `เลือกคำถามอีก ${questionCount - selectedCount} ข้อ`}</span><strong>{selectedCount}/{questionCount} ข้อ · {questionSeconds} วินาที/ข้อ</strong></div>
+        <button className="start-button" onClick={createRoom} disabled={busy || selectedCount !== questionCount}>
           {busy ? "กำลังสร้างห้อง…" : "สร้างห้องและรับ QR Code"} <span>→</span>
         </button>
       </div>
