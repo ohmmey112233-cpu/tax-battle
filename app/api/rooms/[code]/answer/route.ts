@@ -6,9 +6,8 @@ import {
   getRoomByCode,
   noStoreHeaders,
   normalizeCode,
-  roomQuestionIndices,
+  roomQuestions,
 } from "@/lib/game";
-import { QUESTIONS } from "@/lib/questions";
 
 export async function POST(
   request: Request,
@@ -53,8 +52,7 @@ export async function POST(
     );
   }
 
-  const questionIndices = roomQuestionIndices(room);
-  const question = QUESTIONS[questionIndices[room.currentQuestion]];
+  const question = roomQuestions(room)[room.currentQuestion];
   if (!question || !room.questionStartedAt) {
     return Response.json(
       { error: "คำถามยังไม่พร้อม" },

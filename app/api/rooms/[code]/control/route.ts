@@ -5,7 +5,7 @@ import {
   getRoomByCode,
   noStoreHeaders,
   normalizeCode,
-  roomQuestionIndices,
+  roomQuestions,
 } from "@/lib/game";
 
 type Action = "start" | "reveal" | "next" | "finish" | "reset";
@@ -30,7 +30,7 @@ export async function POST(
 
   const db = await getDb();
   const now = Date.now();
-  const questionCount = roomQuestionIndices(room).length;
+  const questionCount = roomQuestions(room).length;
   switch (payload.action) {
     case "start":
       await db

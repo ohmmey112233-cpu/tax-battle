@@ -1,10 +1,39 @@
 import { getDb } from "@/db";
 import { rooms } from "@/db/schema";
 import { noStoreHeaders } from "@/lib/game";
-import { QUESTIONS } from "@/lib/questions";
+import { QUESTIONS, type QuizQuestion } from "@/lib/questions";
 
-const VALID_COUNTS = [5, 10, 15, 20];
 const VALID_SECONDS = [5, 10, 15, 20];
+
+function customQuestion(value: unknown, seconds: number): QuizQuestion | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as {
+    prompt?: unknown;
+    options?: unknown;
+    correctIndex?: unknown;
+    explanation?: unknown;
+  };
+  const prompt = typeof candidate.prompt === "string" ? candidate.prompt.trim() : "";
+  const options = Array.isArray(candidate.options)
+    ? candidate.options.map((option) => typeof option === "string" ? option.trim() : "")
+    : [];
+  if (
+    prompt.length < 3 || prompt.length > 300 ||
+    options.length !== 4 || options.some((option) => option.length < 1 || option.length > 160) ||
+    !Number.isInteger(candidate.correctIndex) ||
+    Number(candidate.correctIndex) < 0 || Number(candidate.correctIndex) > 3
+  ) return null;
+
+  return {
+    prompt,
+    options: options as [string, string, string, string],
+    correctIndex: Number(candidate.correctIndex),
+    seconds,
+    explanation: typeof candidate.explanation === "string" && candidate.explanation.trim()
+      ? candidate.explanation.trim().slice(0, 500)
+      : "คำถามที่ผู้สอนเพิ่มเอง",
+  };
+}
 
 function roomCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -12,28 +41,39 @@ function roomCode() {
 
 export async function POST(request: Request) {
   const payload = (await request.json().catch(() => ({}))) as {
-    questionCount?: number;
     questionSeconds?: number;
     selectedQuestions?: number[];
+    customQuestions?: unknown[];
   };
-  const questionCount = VALID_COUNTS.includes(payload.questionCount ?? 10)
-    ? payload.questionCount ?? 10
-    : 10;
   const questionSeconds = VALID_SECONDS.includes(payload.questionSeconds ?? 15)
     ? payload.questionSeconds ?? 15
     : 15;
-  const selectedQuestions = Array.isArray(payload.selectedQuestions)
+  const selectedIndices = Array.isArray(payload.selectedQuestions)
     ? [...new Set(payload.selectedQuestions)]
         .filter(
           (index) =>
             Number.isInteger(index) && index >= 0 && index < QUESTIONS.length,
         )
         .sort((a, b) => a - b)
-    : Array.from({ length: questionCount }, (_, index) => index);
+    : QUESTIONS.map((_, index) => index);
+  const customQuestions = Array.isArray(payload.customQuestions)
+    ? payload.customQuestions.map((question) => customQuestion(question, questionSeconds))
+    : [];
 
-  if (selectedQuestions.length !== questionCount) {
+  if (customQuestions.some((question) => !question)) {
     return Response.json(
-      { error: `กรุณาเลือกคำถามให้ครบ ${questionCount} ข้อ` },
+      { error: "คำถามที่เพิ่มเองมีข้อมูลไม่ครบหรือยาวเกินกำหนด" },
+      { status: 400, headers: noStoreHeaders },
+    );
+  }
+  const questionSet = [
+    ...(customQuestions as QuizQuestion[]),
+    ...selectedIndices.map((index) => QUESTIONS[index]),
+  ];
+  const questionCount = questionSet.length;
+  if (questionCount < 1 || questionCount > 20) {
+    return Response.json(
+      { error: "กรุณาเลือกคำถามรวมตั้งแต่ 1 ถึง 20 ข้อ" },
       { status: 400, headers: noStoreHeaders },
     );
   }
@@ -54,7 +94,7 @@ export async function POST(request: Request) {
         currentQuestion: -1,
         questionCount,
         questionSeconds,
-        selectedQuestions: JSON.stringify(selectedQuestions),
+        selectedQuestions: JSON.stringify(questionSet),
         maxPlayers: 150,
         createdAt: now,
         updatedAt: now,

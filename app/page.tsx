@@ -161,47 +161,96 @@ function HomeScreen({ onJoin, onCreate }: { onJoin: (code: string) => void; onCr
   );
 }
 
-const QUESTION_COUNTS = [5, 10, 15, 20] as const;
 const QUESTION_TIMES = [5, 10, 15, 20] as const;
+
+type CustomQuestion = {
+  id: string;
+  prompt: string;
+  options: [string, string, string, string];
+  correctIndex: number;
+  explanation: string;
+};
 
 function SetupScreen({ onBack, onCreated }: {
   onBack: () => void;
   onCreated: (code: string, token: string) => void;
 }) {
-  const [questionCount, setQuestionCount] = useState(10);
-  const [selected, setSelected] = useState<number[]>(QUESTIONS.slice(0, 10).map((_, index) => index));
+  const [selected, setSelected] = useState<number[]>(QUESTIONS.map((_, index) => index));
+  const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([]);
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [customOptions, setCustomOptions] = useState<[string, string, string, string]>(["", "", "", ""]);
+  const [customCorrectIndex, setCustomCorrectIndex] = useState(0);
+  const [customExplanation, setCustomExplanation] = useState("");
   const [questionSeconds, setQuestionSeconds] = useState(15);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  function changeCount(nextCount: number) {
-    setQuestionCount(nextCount);
-    setSelected((current) => {
-      const next = [...current].sort((a, b) => a - b).slice(0, nextCount);
-      for (let index = 0; next.length < nextCount && index < QUESTIONS.length; index += 1) {
-        if (!next.includes(index)) next.push(index);
-      }
-      return next.sort((a, b) => a - b);
-    });
-    setError("");
-  }
+  const [notice, setNotice] = useState("");
+  const questionCount = selected.length + customQuestions.length;
 
   function toggleQuestion(index: number) {
     setSelected((current) => {
       if (current.includes(index)) return current.filter((item) => item !== index);
-      if (current.length >= questionCount) {
-        setError(`เลือกครบ ${questionCount} ข้อแล้ว กรุณาเอาข้อหนึ่งออกก่อน`);
+      if (current.length + customQuestions.length >= 20) {
+        setError("เลือกครบ 20 ข้อแล้ว กรุณาเอาข้อหนึ่งออกก่อน");
         return current;
       }
       setError("");
+      setNotice("");
       return [...current, index].sort((a, b) => a - b);
     });
   }
 
+  function updateCustomOption(index: number, value: string) {
+    setCustomOptions((current) => current.map((option, optionIndex) => optionIndex === index ? value : option) as [string, string, string, string]);
+  }
+
+  function addCustomQuestion(event: FormEvent) {
+    event.preventDefault();
+    const prompt = customPrompt.trim();
+    const options = customOptions.map((option) => option.trim()) as [string, string, string, string];
+    if (prompt.length < 3) {
+      setError("กรุณาใส่คำถามอย่างน้อย 3 ตัวอักษร");
+      return;
+    }
+    if (options.some((option) => !option)) {
+      setError("กรุณาใส่ตัวเลือกให้ครบทั้ง 4 ตัวเลือก");
+      return;
+    }
+    if (questionCount >= 20 && selected.length === 0) {
+      setError("มีคำถามเพิ่มเองครบ 20 ข้อแล้ว กรุณาลบหนึ่งข้อก่อน");
+      return;
+    }
+
+    if (questionCount >= 20) {
+      setSelected((current) => current.slice(0, -1));
+      setNotice("เพิ่มคำถามแล้ว และนำคำถามแนะนำลำดับท้ายออก 1 ข้อเพื่อคงจำนวนสูงสุด 20 ข้อ");
+    } else {
+      setNotice("เพิ่มคำถามของคุณแล้ว");
+    }
+    setCustomQuestions((current) => [...current, {
+      id: crypto.randomUUID(),
+      prompt,
+      options,
+      correctIndex: customCorrectIndex,
+      explanation: customExplanation.trim(),
+    }]);
+    setCustomPrompt("");
+    setCustomOptions(["", "", "", ""]);
+    setCustomCorrectIndex(0);
+    setCustomExplanation("");
+    setError("");
+  }
+
+  function deleteCustomQuestion(id: string) {
+    setCustomQuestions((current) => current.filter((question) => question.id !== id));
+    setNotice("ลบคำถามเพิ่มเองแล้ว คุณสามารถเลือกคำถามแนะนำกลับเข้ามาได้");
+    setError("");
+  }
+
   async function createRoom() {
-    if (selected.length !== questionCount) {
-      setError(`กรุณาเลือกคำถามให้ครบ ${questionCount} ข้อ`);
+    if (questionCount < 1 || questionCount > 20) {
+      setError("กรุณาเลือกคำถามรวมตั้งแต่ 1 ถึง 20 ข้อ");
       return;
     }
     setBusy(true);
@@ -211,7 +260,16 @@ function SetupScreen({ onBack, onCreated }: {
         await fetch("/api/rooms", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ questionCount, questionSeconds, selectedQuestions: selected }),
+          body: JSON.stringify({
+            questionSeconds,
+            selectedQuestions: selected,
+            customQuestions: customQuestions.map(({ prompt, options, correctIndex, explanation }) => ({
+              prompt,
+              options,
+              correctIndex,
+              explanation,
+            })),
+          }),
         })
       );
       localStorage.setItem(`tax-battle-host-${room.code}`, room.hostToken);
@@ -233,23 +291,65 @@ function SetupScreen({ onBack, onCreated }: {
       <div className="setup-main">
         <header className="setup-heading">
           <p className="eyebrow">HOST CONTROL</p>
-          <h1>ตั้งค่าสนามแข่งขัน</h1>
+          <div className="setup-heading-line">
+            <h1>ตั้งค่าสนามแข่งขัน</h1>
+            <div className="current-question-count"><span>คำถามปัจจุบัน</span><strong>{questionCount}/20</strong></div>
+          </div>
           <p>เลือกชุดคำถามและเวลาให้พร้อมก่อนเปิดห้อง การตั้งค่าจะถูกล็อกทันทีเมื่อสร้างห้อง</p>
         </header>
 
-        <section className="setup-step">
-          <div className="step-title"><span className="step-number">1</span><div><h2>จำนวนคำถาม</h2><p>เลือกรูปแบบเกมที่เหมาะกับเวลาในชั้นเรียน</p></div></div>
-          <div className="segmented" aria-label="จำนวนคำถาม">
-            {QUESTION_COUNTS.map((count) => (
-              <button key={count} className={questionCount === count ? "active" : ""} onClick={() => changeCount(count)}>{count} ข้อ</button>
-            ))}
-          </div>
+        <section className="setup-step custom-question-step">
+          <div className="step-title"><span className="step-number">1</span><div><h2>เพิ่มคำถามเอง</h2><p>คำถามของคุณจะอยู่ก่อนคำถามแนะนำในลำดับการเล่น</p></div></div>
+          <form className="custom-question-form" onSubmit={addCustomQuestion}>
+            <label className="custom-field custom-prompt-field">
+              <span>คำถาม</span>
+              <textarea maxLength={300} placeholder="พิมพ์คำถามที่ต้องการใช้ในเกม" value={customPrompt} onChange={(event) => setCustomPrompt(event.target.value)} />
+            </label>
+            <div className="custom-options-grid">
+              {customOptions.map((option, index) => (
+                <label className="custom-field" key={index}>
+                  <span>ตัวเลือก {String.fromCharCode(65 + index)}</span>
+                  <input maxLength={160} placeholder={`คำตอบ ${String.fromCharCode(65 + index)}`} value={option} onChange={(event) => updateCustomOption(index, event.target.value)} />
+                </label>
+              ))}
+            </div>
+            <div className="custom-form-bottom">
+              <div>
+                <label>คำตอบที่ถูกต้อง</label>
+                <div className="correct-answer-picker">
+                  {customOptions.map((_, index) => (
+                    <button type="button" className={customCorrectIndex === index ? "active" : ""} onClick={() => setCustomCorrectIndex(index)} key={index}>{String.fromCharCode(65 + index)}</button>
+                  ))}
+                </div>
+              </div>
+              <label className="custom-field explanation-field">
+                <span>คำอธิบายเพิ่มเติม (ไม่บังคับ)</span>
+                <textarea maxLength={500} placeholder="อธิบายเฉลยสั้นๆ" value={customExplanation} onChange={(event) => setCustomExplanation(event.target.value)} />
+              </label>
+            </div>
+            <button className="add-question-button" type="submit">
+              {questionCount >= 20 ? "+ เพิ่มและแทนที่คำถามแนะนำ 1 ข้อ" : "+ เพิ่มคำถามนี้"}
+            </button>
+          </form>
+
+          {customQuestions.length > 0 && (
+            <div className="custom-question-list">
+              <h3>คำถามที่เพิ่มเอง <span>{customQuestions.length} ข้อ</span></h3>
+              {customQuestions.map((question, index) => (
+                <article className="custom-question-item" key={question.id}>
+                  <span className="question-index">C{String(index + 1).padStart(2, "0")}</span>
+                  <div><strong>{question.prompt}</strong><p>คำตอบ: {String.fromCharCode(65 + question.correctIndex)} · {question.options[question.correctIndex]}</p></div>
+                  <button onClick={() => deleteCustomQuestion(question.id)} aria-label={`ลบคำถาม ${question.prompt}`}>ลบ</button>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="setup-step question-step">
-          <div className="step-title"><span className="step-number">2</span><div><h2>เลือกคำถาม</h2><p>เกมจะเล่นตามลำดับเดิมของรายการด้านล่าง</p></div></div>
-          <div className={`selection-summary ${selected.length === questionCount ? "complete" : ""}`}>
-            เลือกแล้ว <strong>{selected.length}/{questionCount}</strong> ข้อ
+          <div className="step-title"><span className="step-number">2</span><div><h2>คำถามแนะนำ</h2><p>เลือกไว้ทั้งหมดเป็นค่าเริ่มต้น และสามารถเอาออกเพื่อเพิ่มคำถามของคุณได้</p></div></div>
+          <div className={`selection-summary ${questionCount === 20 ? "complete" : ""}`}>
+            จำนวนคำถามปัจจุบัน <strong>{questionCount}/20</strong> ข้อ · คำถามแนะนำที่เลือก {selected.length} ข้อ
           </div>
           <div className="question-picker">
             {QUESTIONS.map((question, index) => {
@@ -295,11 +395,12 @@ function SetupScreen({ onBack, onCreated }: {
         </section>
 
         {error && <ErrorBanner message={error} />}
+        {notice && <div className="notice-banner">✓ {notice}</div>}
       </div>
 
       <div className="setup-actionbar">
         <div><span>พร้อมสร้างห้อง</span><strong>{questionCount} ข้อ · {questionSeconds} วินาที/ข้อ</strong></div>
-        <button className="start-button" onClick={createRoom} disabled={busy || selected.length !== questionCount}>
+        <button className="start-button" onClick={createRoom} disabled={busy || questionCount < 1 || questionCount > 20}>
           {busy ? "กำลังสร้างห้อง…" : "สร้างห้องและรับ QR Code"} <span>→</span>
         </button>
       </div>
