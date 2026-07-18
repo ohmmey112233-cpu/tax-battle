@@ -618,15 +618,8 @@ export function JumpGame({
         if (currentHeight > maxHeightRef.current) maxHeightRef.current = currentHeight;
         player.cameraBottom += (Math.max(0, player.y - 185) - player.cameraBottom) * Math.min(1, delta * 4.5);
 
-        if (player.y < player.cameraBottom - 230) {
-          const checkpointY = platforms[player.checkpointIndex]?.y ?? 0;
-          let respawnIndex = 0;
-          for (let index = 0; index < platforms.length; index += 1) {
-            if (platforms[index].y <= Math.max(0, checkpointY - 105)) respawnIndex = index;
-            else break;
-          }
-          const respawn = platforms[respawnIndex];
-          player.checkpointIndex = respawnIndex;
+        const respawn = platforms[player.checkpointIndex] ?? platforms[0];
+        if (respawn.y - player.y > 200) {
           player.x = respawn.x + respawn.width / 2;
           player.y = respawn.y + 2;
           player.vx = 0;
@@ -634,7 +627,7 @@ export function JumpGame({
           player.jumps = 0;
           player.cameraBottom = Math.max(0, respawn.y - 95);
           energyRef.current = Math.max(0, energyRef.current - 4);
-          setToast("ไม่เป็นไร! กลับมาที่จุดปลอดภัยแล้ว");
+          setToast("ร่วงเกิน 20 เมตร · กลับจุดปลอดภัยล่าสุดแล้ว");
         }
 
         if (energyRef.current <= ENERGY_THRESHOLD && !quizOpenRef.current) openQuiz(true);
@@ -698,7 +691,7 @@ export function JumpGame({
       <div className="jump-hud">
         <div className="jump-hud-card"><span>สูงสุด</span><strong>{maxHeight} ม.</strong></div>
         <div className="jump-hud-card jump-time"><span>เวลา</span><strong>{formatTime(secondsLeft)}</strong></div>
-        <button className="jump-quiz-shortcut" onClick={() => openQuiz(false)}>+ Quiz</button>
+        <button className="jump-quiz-shortcut" onClick={() => openQuiz(false)} aria-label="ตอบคำถามเพื่อเติมพลัง">⚡ เติมพลัง</button>
       </div>
       <div className="energy-panel">
         <div className="energy-label"><span>⚡ พลังงาน</span><strong>{energy}/100</strong></div>

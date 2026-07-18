@@ -986,7 +986,7 @@ input:focus { box-shadow: 0 0 0 5px rgba(0,229,255,.1); }
 .jump-hud-card span { color: #aeeaf2; font-size: 10px; }
 .jump-hud-card strong { font-size: 17px; line-height: 1.1; }
 .jump-time strong { color: var(--lime); letter-spacing: .04em; }
-.jump-quiz-shortcut { padding: 0 13px; color: var(--lime); font-size: 12px; font-weight: 900; pointer-events: auto; }
+.jump-quiz-shortcut { min-height: 42px; align-self: center; padding: 0 11px; color: var(--lime); font-size: 11px; font-weight: 900; pointer-events: auto; }
 .energy-panel { position: absolute; z-index: 8; top: 71px; left: 12px; right: 12px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 14px; background: rgba(5,11,18,.72); backdrop-filter: blur(10px); }
 .energy-label { margin-bottom: 6px; display: flex; justify-content: space-between; color: white; font-size: 10px; }
 .energy-label strong { color: var(--lime); }
