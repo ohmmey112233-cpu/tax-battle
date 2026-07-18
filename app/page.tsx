@@ -3,6 +3,7 @@
 import QRCode from "qrcode";
 import Image from "next/image";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { QUESTIONS } from "@/lib/questions";
 
 type Phase = "lobby" | "question" | "reveal" | "finished";
 
@@ -22,6 +23,8 @@ type Snapshot = {
     maxPlayers: number;
     playerCount: number;
     answeredCount: number;
+    questionCount: number;
+    questionSeconds: number;
   };
   question: null | {
     index: number;
@@ -52,6 +55,7 @@ type Snapshot = {
 
 type Screen =
   | { type: "home" }
+  | { type: "setup" }
   | { type: "join"; code: string }
   | { type: "host"; code: string; token: string }
   | { type: "player"; code: string; token: string };
@@ -91,25 +95,9 @@ function ErrorBanner({ message }: { message: string }) {
   );
 }
 
-function HomeScreen({ onJoin }: { onJoin: (code: string) => void }) {
+function HomeScreen({ onJoin, onCreate }: { onJoin: (code: string) => void; onCreate: () => void }) {
   const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  async function createRoom() {
-    setBusy(true);
-    setError("");
-    try {
-      const room = await readJson<{ code: string; hostToken: string }>(
-        await fetch("/api/rooms", { method: "POST" })
-      );
-      localStorage.setItem(`tax-battle-host-${room.code}`, room.hostToken);
-      window.location.href = `/?host=${room.code}&token=${room.hostToken}`;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "สร้างห้องไม่สำเร็จ");
-      setBusy(false);
-    }
-  }
 
   function submitCode(event: FormEvent) {
     event.preventDefault();
@@ -125,21 +113,12 @@ function HomeScreen({ onJoin }: { onJoin: (code: string) => void }) {
     <main className="home-shell">
       <nav className="topbar">
         <Brand />
-        <StatusPill>20 คำถาม · สูงสุด 120 คน</StatusPill>
+        <StatusPill>สูงสุด 120 คน</StatusPill>
       </nav>
 
       <section className="hero-grid">
         <div className="hero-copy">
-          <p className="eyebrow">QUIZ เรื่องภาษี ปี 2569</p>
-          <h1>เรียนภาษีให้สนุก<br />แล้วมาวัดกันที่ความเร็ว</h1>
-          <p className="hero-lede">
-            ตอบถูกได้คะแนน ตอบเร็วได้คะแนนเพิ่ม พร้อมอันดับสดหลังจบทุกข้อ
-          </p>
-          <div className="hero-stats" aria-label="รายละเอียดเกม">
-            <div><strong>20</strong><span>คำถาม</span></div>
-            <div><strong>120</strong><span>ผู้เล่น</span></div>
-            <div><strong>1,000</strong><span>คะแนนสูงสุด/ข้อ</span></div>
-          </div>
+          <h1>Tax<br />Battle</h1>
         </div>
 
         <div className="entry-stack">
@@ -166,8 +145,8 @@ function HomeScreen({ onJoin }: { onJoin: (code: string) => void }) {
               <h2>สร้างห้องใหม่</h2>
               <p>ระบบจะสร้างรหัสและ QR Code ให้ทันที</p>
             </div>
-            <button className="secondary-button" onClick={createRoom} disabled={busy}>
-              {busy ? "กำลังสร้าง…" : "สร้างห้องสำหรับผู้สอน"}
+            <button className="secondary-button" onClick={onCreate}>
+              สร้างห้องสำหรับผู้สอน
             </button>
           </div>
           {error && <ErrorBanner message={error} />}
@@ -178,6 +157,152 @@ function HomeScreen({ onJoin }: { onJoin: (code: string) => void }) {
         <span>Tax Battle</span>
         <span>ตอบถูก + ตอบเร็ว = คะแนนมากกว่า</span>
       </footer>
+    </main>
+  );
+}
+
+const QUESTION_COUNTS = [5, 10, 15, 20] as const;
+const QUESTION_TIMES = [5, 10, 15, 20] as const;
+
+function SetupScreen({ onBack, onCreated }: {
+  onBack: () => void;
+  onCreated: (code: string, token: string) => void;
+}) {
+  const [questionCount, setQuestionCount] = useState(10);
+  const [selected, setSelected] = useState<number[]>(QUESTIONS.slice(0, 10).map((_, index) => index));
+  const [questionSeconds, setQuestionSeconds] = useState(15);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  function changeCount(nextCount: number) {
+    setQuestionCount(nextCount);
+    setSelected((current) => {
+      const next = [...current].sort((a, b) => a - b).slice(0, nextCount);
+      for (let index = 0; next.length < nextCount && index < QUESTIONS.length; index += 1) {
+        if (!next.includes(index)) next.push(index);
+      }
+      return next.sort((a, b) => a - b);
+    });
+    setError("");
+  }
+
+  function toggleQuestion(index: number) {
+    setSelected((current) => {
+      if (current.includes(index)) return current.filter((item) => item !== index);
+      if (current.length >= questionCount) {
+        setError(`เลือกครบ ${questionCount} ข้อแล้ว กรุณาเอาข้อหนึ่งออกก่อน`);
+        return current;
+      }
+      setError("");
+      return [...current, index].sort((a, b) => a - b);
+    });
+  }
+
+  async function createRoom() {
+    if (selected.length !== questionCount) {
+      setError(`กรุณาเลือกคำถามให้ครบ ${questionCount} ข้อ`);
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const room = await readJson<{ code: string; hostToken: string }>(
+        await fetch("/api/rooms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questionCount, questionSeconds, selectedQuestions: selected }),
+        })
+      );
+      localStorage.setItem(`tax-battle-host-${room.code}`, room.hostToken);
+      window.history.pushState({}, "", `/?host=${room.code}&token=${room.hostToken}`);
+      onCreated(room.code, room.hostToken);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "สร้างห้องไม่สำเร็จ");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="setup-shell">
+      <nav className="setup-topbar">
+        <Brand />
+        <button className="text-button setup-back" onClick={onBack}>← กลับหน้าหลัก</button>
+      </nav>
+
+      <div className="setup-main">
+        <header className="setup-heading">
+          <p className="eyebrow">HOST CONTROL</p>
+          <h1>ตั้งค่าสนามแข่งขัน</h1>
+          <p>เลือกชุดคำถามและเวลาให้พร้อมก่อนเปิดห้อง การตั้งค่าจะถูกล็อกทันทีเมื่อสร้างห้อง</p>
+        </header>
+
+        <section className="setup-step">
+          <div className="step-title"><span className="step-number">1</span><div><h2>จำนวนคำถาม</h2><p>เลือกรูปแบบเกมที่เหมาะกับเวลาในชั้นเรียน</p></div></div>
+          <div className="segmented" aria-label="จำนวนคำถาม">
+            {QUESTION_COUNTS.map((count) => (
+              <button key={count} className={questionCount === count ? "active" : ""} onClick={() => changeCount(count)}>{count} ข้อ</button>
+            ))}
+          </div>
+        </section>
+
+        <section className="setup-step question-step">
+          <div className="step-title"><span className="step-number">2</span><div><h2>เลือกคำถาม</h2><p>เกมจะเล่นตามลำดับเดิมของรายการด้านล่าง</p></div></div>
+          <div className={`selection-summary ${selected.length === questionCount ? "complete" : ""}`}>
+            เลือกแล้ว <strong>{selected.length}/{questionCount}</strong> ข้อ
+          </div>
+          <div className="question-picker">
+            {QUESTIONS.map((question, index) => {
+              const isSelected = selected.includes(index);
+              const isExpanded = expanded === index;
+              return (
+                <article className={`question-card ${isSelected ? "selected" : ""}`} key={question.prompt}>
+                  <div className="question-card-head">
+                    <button className="question-toggle" onClick={() => toggleQuestion(index)} aria-pressed={isSelected}>
+                      <span className="question-check">{isSelected ? "✓" : ""}</span>
+                      <span className="question-index">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="question-copy">{question.prompt}</span>
+                    </button>
+                    <button className="detail-button" onClick={() => setExpanded(isExpanded ? null : index)} aria-expanded={isExpanded}>
+                      {isExpanded ? "ซ่อน" : "ดูรายละเอียด"}
+                    </button>
+                  </div>
+                  {isExpanded && (
+                    <div className="question-details">
+                      <div className="option-preview-grid">
+                        {question.options.map((option, optionIndex) => (
+                          <span className={optionIndex === question.correctIndex ? "correct" : ""} key={option}>
+                            {ANSWER_ICONS[optionIndex]} {option}{optionIndex === question.correctIndex ? " ✓" : ""}
+                          </span>
+                        ))}
+                      </div>
+                      <p><strong>คำอธิบาย:</strong> {question.explanation}</p>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="setup-step">
+          <div className="step-title"><span className="step-number">3</span><div><h2>เวลาต่อข้อ</h2><p>ใช้เวลาเดียวกันสำหรับทุกคำถาม</p></div></div>
+          <div className="segmented" aria-label="เวลาต่อข้อ">
+            {QUESTION_TIMES.map((seconds) => (
+              <button key={seconds} className={questionSeconds === seconds ? "active" : ""} onClick={() => setQuestionSeconds(seconds)}>{seconds} วิ</button>
+            ))}
+          </div>
+        </section>
+
+        {error && <ErrorBanner message={error} />}
+      </div>
+
+      <div className="setup-actionbar">
+        <div><span>พร้อมสร้างห้อง</span><strong>{questionCount} ข้อ · {questionSeconds} วินาที/ข้อ</strong></div>
+        <button className="start-button" onClick={createRoom} disabled={busy || selected.length !== questionCount}>
+          {busy ? "กำลังสร้างห้อง…" : "สร้างห้องและรับ QR Code"} <span>→</span>
+        </button>
+      </div>
     </main>
   );
 }
@@ -363,7 +488,7 @@ function HostScreen({ code, token }: { code: string; token: string }) {
       width: 420,
       margin: 2,
       errorCorrectionLevel: "H",
-      color: { dark: "#073b4c", light: "#ffffff" },
+      color: { dark: "#071019", light: "#ffffff" },
     }).then(setQr);
   }, [joinUrl]);
 
@@ -410,7 +535,10 @@ function HostScreen({ code, token }: { code: string; token: string }) {
           <div className="lobby-roster">
             <div className="roster-heading">
               <div><p>ผู้เล่นพร้อมแล้ว</p><strong>{snapshot.room.playerCount}<small>/120</small></strong></div>
-              <StatusPill tone="lime">กำลังรอ</StatusPill>
+              <div className="lobby-status-stack">
+                <StatusPill tone="lime">กำลังรอ</StatusPill>
+                <StatusPill>{snapshot.room.questionCount} ข้อ · {snapshot.room.questionSeconds} วินาที/ข้อ</StatusPill>
+              </div>
             </div>
             <div className="roster-list">
               {snapshot.leaderboard.length ? snapshot.leaderboard.map((player) => (
@@ -418,7 +546,7 @@ function HostScreen({ code, token }: { code: string; token: string }) {
               )) : <div className="empty-roster"><span>↗</span>รายชื่อจะปรากฏที่นี่</div>}
             </div>
             <button className="start-button" onClick={() => control("start")} disabled={busy}>
-              เริ่มเกม 20 ข้อ <span>→</span>
+              เริ่มเกม {snapshot.room.questionCount} ข้อ <span>→</span>
             </button>
           </div>
         </section>
@@ -453,7 +581,7 @@ function HostScreen({ code, token }: { code: string; token: string }) {
           <div className="results-title">
             <p className="eyebrow">FINAL SCORE</p>
             <h1>สุดยอดนักวางแผนภาษี</h1>
-            <p>คะแนนรวมจากความถูกต้องและความเร็วทั้ง 20 ข้อ</p>
+            <p>คะแนนรวมจากความถูกต้องและความเร็วทั้ง {snapshot.room.questionCount} ข้อ</p>
             <button className="secondary-button" onClick={() => control("reset")} disabled={busy}>เล่นอีกรอบ</button>
           </div>
           <Leaderboard rows={snapshot.leaderboard} full />
@@ -544,7 +672,7 @@ function PlayerScreen({ code, token }: { code: string; token: string }) {
           <p className="eyebrow">จบการแข่งขัน</p>
           <h1>{snapshot.player?.nickname}</h1>
           <div className="final-score">{formatNumber(snapshot.player?.score ?? 0)}<span>คะแนน</span></div>
-          <p>ตอบถูก {snapshot.player?.correctCount ?? 0} จาก 20 ข้อ</p>
+          <p>ตอบถูก {snapshot.player?.correctCount ?? 0} จาก {snapshot.room.questionCount} ข้อ</p>
           <Leaderboard rows={snapshot.leaderboard.slice(0, 10)} />
           <button className="secondary-button" onClick={() => (window.location.href = "/")}>กลับหน้าหลัก</button>
         </section>
@@ -583,11 +711,17 @@ export default function Home() {
   if (screen.type === "join") {
     return <JoinScreen code={screen.code} onJoined={(token) => setScreen({ type: "player", code: screen.code, token })} />;
   }
+  if (screen.type === "setup") {
+    return <SetupScreen onBack={() => setScreen({ type: "home" })} onCreated={(code, token) => setScreen({ type: "host", code, token })} />;
+  }
   if (screen.type === "host") return <HostScreen code={screen.code} token={screen.token} />;
   if (screen.type === "player") return <PlayerScreen code={screen.code} token={screen.token} />;
-  return <HomeScreen onJoin={(code) => {
-    window.history.pushState({}, "", `/?join=${code}`);
-    const playerToken = localStorage.getItem(`tax-battle-player-${code}`);
-    setScreen(playerToken ? { type: "player", code, token: playerToken } : { type: "join", code });
-  }} />;
+  return <HomeScreen
+    onCreate={() => setScreen({ type: "setup" })}
+    onJoin={(code) => {
+      window.history.pushState({}, "", `/?join=${code}`);
+      const playerToken = localStorage.getItem(`tax-battle-player-${code}`);
+      setScreen(playerToken ? { type: "player", code, token: playerToken } : { type: "join", code });
+    }}
+  />;
 }

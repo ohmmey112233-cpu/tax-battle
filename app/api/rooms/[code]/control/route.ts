@@ -1,8 +1,12 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { answers, players, rooms } from "@/db/schema";
-import { getRoomByCode, noStoreHeaders, normalizeCode } from "@/lib/game";
-import { QUESTION_COUNT } from "@/lib/questions";
+import {
+  getRoomByCode,
+  noStoreHeaders,
+  normalizeCode,
+  roomQuestionIndices,
+} from "@/lib/game";
 
 type Action = "start" | "reveal" | "next" | "finish" | "reset";
 
@@ -26,6 +30,7 @@ export async function POST(
 
   const db = await getDb();
   const now = Date.now();
+  const questionCount = roomQuestionIndices(room).length;
   switch (payload.action) {
     case "start":
       await db
@@ -44,7 +49,7 @@ export async function POST(
       await db
         .update(rooms)
         .set(
-          nextQuestion >= QUESTION_COUNT
+          nextQuestion >= questionCount
             ? { phase: "finished", updatedAt: now }
             : {
                 phase: "question",

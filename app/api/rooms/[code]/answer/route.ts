@@ -6,6 +6,7 @@ import {
   getRoomByCode,
   noStoreHeaders,
   normalizeCode,
+  roomQuestionIndices,
 } from "@/lib/game";
 import { QUESTIONS } from "@/lib/questions";
 
@@ -52,7 +53,8 @@ export async function POST(
     );
   }
 
-  const question = QUESTIONS[room.currentQuestion];
+  const questionIndices = roomQuestionIndices(room);
+  const question = QUESTIONS[questionIndices[room.currentQuestion]];
   if (!question || !room.questionStartedAt) {
     return Response.json(
       { error: "คำถามยังไม่พร้อม" },
@@ -62,7 +64,7 @@ export async function POST(
 
   const now = Date.now();
   const responseMs = Math.max(0, now - room.questionStartedAt);
-  if (responseMs > question.seconds * 1000 + 1200) {
+  if (responseMs > room.questionSeconds * 1000 + 1200) {
     return Response.json(
       { error: "หมดเวลาตอบข้อนี้แล้ว" },
       { status: 409, headers: noStoreHeaders }
@@ -89,7 +91,10 @@ export async function POST(
   }
 
   const isCorrect = payload.answerIndex === question.correctIndex;
-  const timeRatio = Math.max(0, 1 - responseMs / (question.seconds * 1000));
+  const timeRatio = Math.max(
+    0,
+    1 - responseMs / (room.questionSeconds * 1000),
+  );
   const points = isCorrect ? 500 + Math.round(500 * timeRatio) : 0;
 
   try {

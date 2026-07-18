@@ -19,6 +19,27 @@ export function nicknameKey(value: string) {
   return normalizeNickname(value).toLocaleLowerCase("th-TH");
 }
 
+export function roomQuestionIndices(room: {
+  selectedQuestions: string;
+  questionCount: number;
+}) {
+  try {
+    const parsed = JSON.parse(room.selectedQuestions) as unknown;
+    if (!Array.isArray(parsed)) throw new Error("invalid question list");
+    const indices = parsed.filter(
+      (value): value is number =>
+        Number.isInteger(value) && value >= 0 && value < QUESTIONS.length,
+    );
+    if (indices.length === room.questionCount) return indices;
+  } catch {
+    // Older or malformed rooms fall back to the first configured questions.
+  }
+  return Array.from(
+    { length: Math.min(room.questionCount || 10, QUESTIONS.length) },
+    (_, index) => index,
+  );
+}
+
 export async function getRoomByCode(code: string) {
   const db = await getDb();
   const [room] = await db.select().from(rooms).where(eq(rooms.code, code)).limit(1);
@@ -44,12 +65,14 @@ export async function getRoomSnapshot(
   let room = await getRoomByCode(code);
   if (!room) return null;
 
-  const question = QUESTIONS[room.currentQuestion];
+  const questionIndices = roomQuestionIndices(room);
+  const contentIndex = questionIndices[room.currentQuestion];
+  const question = QUESTIONS[contentIndex];
   if (
     room.phase === "question" &&
     question &&
     room.questionStartedAt &&
-    Date.now() >= room.questionStartedAt + question.seconds * 1000
+    Date.now() >= room.questionStartedAt + room.questionSeconds * 1000
   ) {
     await db
       .update(rooms)
@@ -120,10 +143,10 @@ export async function getRoomSnapshot(
     ? {
         index: room.currentQuestion,
         number: room.currentQuestion + 1,
-        total: QUESTIONS.length,
+        total: questionIndices.length,
         prompt: question.prompt,
         options: question.options,
-        seconds: question.seconds,
+        seconds: room.questionSeconds,
         startedAt: room.questionStartedAt,
         ...(room.phase !== "question"
           ? { correctIndex: question.correctIndex, explanation: question.explanation }
@@ -136,6 +159,8 @@ export async function getRoomSnapshot(
       code: room.code,
       phase: room.phase,
       currentQuestion: room.currentQuestion,
+      questionCount: questionIndices.length,
+      questionSeconds: room.questionSeconds,
       maxPlayers: room.maxPlayers,
       playerCount,
       answeredCount,
