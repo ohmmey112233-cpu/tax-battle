@@ -14,6 +14,9 @@ export const rooms = sqliteTable(
     selectedQuestions: text("selected_questions")
       .notNull()
       .default("[0,1,2,3,4,5,6,7,8,9]"),
+    gameMode: text("game_mode").notNull().default("quiz"),
+    gameDurationSeconds: integer("game_duration_seconds").notNull().default(300),
+    gameStartedAt: integer("game_started_at"),
     maxPlayers: integer("max_players").notNull().default(150),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
@@ -32,6 +35,9 @@ export const players = sqliteTable(
     score: integer("score").notNull().default(0),
     correctCount: integer("correct_count").notNull().default(0),
     totalResponseMs: integer("total_response_ms").notNull().default(0),
+    maxHeight: integer("max_height").notNull().default(0),
+    energy: integer("energy").notNull().default(100),
+    jumpQuestionIndex: integer("jump_question_index").notNull().default(0),
     joinedAt: integer("joined_at").notNull(),
     lastSeenAt: integer("last_seen_at").notNull(),
   },
@@ -39,6 +45,7 @@ export const players = sqliteTable(
     uniqueIndex("players_room_nickname_unique").on(table.roomId, table.nicknameKey),
     uniqueIndex("players_token_unique").on(table.token),
     index("players_room_score_idx").on(table.roomId, table.score),
+    index("players_room_height_idx").on(table.roomId, table.maxHeight),
   ]
 );
 

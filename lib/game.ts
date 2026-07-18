@@ -94,13 +94,24 @@ export async function getRoomSnapshot(
       .where(and(eq(rooms.id, room.id), eq(rooms.phase, "question")));
     room = { ...room, phase: "reveal" };
   }
+  if (
+    room.phase === "jump" &&
+    room.gameStartedAt &&
+    Date.now() >= room.gameStartedAt + room.gameDurationSeconds * 1000
+  ) {
+    await db
+      .update(rooms)
+      .set({ phase: "finished", updatedAt: Date.now() })
+      .where(and(eq(rooms.id, room.id), eq(rooms.phase, "jump")));
+    room = { ...room, phase: "finished" };
+  }
 
   const isHost = Boolean(options.hostToken && options.hostToken === room.hostToken);
   const player = options.playerToken
     ? await getPlayerByToken(room.id, options.playerToken)
     : null;
 
-  if (player) {
+  if (player && Date.now() - player.lastSeenAt > 15_000) {
     await db
       .update(players)
       .set({ lastSeenAt: Date.now() })
@@ -124,18 +135,24 @@ export async function getRoomSnapshot(
         )
     : [{ value: 0 }];
 
-  const leaderboard = await db
-    .select({
-      id: players.id,
-      nickname: players.nickname,
-      score: players.score,
-      correctCount: players.correctCount,
-      totalResponseMs: players.totalResponseMs,
-    })
-    .from(players)
-    .where(eq(players.roomId, room.id))
-    .orderBy(desc(players.score), desc(players.correctCount), asc(players.totalResponseMs))
-    .limit(isHost || room.phase === "finished" ? room.maxPlayers : 10);
+  const leaderboard = !isHost && room.phase === "jump"
+    ? []
+    : await db
+        .select({
+          id: players.id,
+          nickname: players.nickname,
+          score: players.score,
+          correctCount: players.correctCount,
+          totalResponseMs: players.totalResponseMs,
+          maxHeight: players.maxHeight,
+          energy: players.energy,
+        })
+        .from(players)
+        .where(eq(players.roomId, room.id))
+        .orderBy(...(room.gameMode === "jump"
+          ? [desc(players.maxHeight), desc(players.score), desc(players.correctCount), asc(players.totalResponseMs)]
+          : [desc(players.score), desc(players.correctCount), asc(players.totalResponseMs)]))
+        .limit(isHost || room.phase === "finished" ? room.maxPlayers : 10);
 
   let myAnswer = null;
   if (player && room.currentQuestion >= 0) {
@@ -168,6 +185,21 @@ export async function getRoomSnapshot(
       }
     : null;
 
+  const jumpQuestionIndex = player?.jumpQuestionIndex ?? 0;
+  const jumpQuestionSource = questions.length
+    ? questions[jumpQuestionIndex % questions.length]
+    : null;
+  const jumpQuestion = player && jumpQuestionSource && room.gameMode === "jump"
+    ? {
+        index: jumpQuestionIndex,
+        number: (jumpQuestionIndex % questions.length) + 1,
+        total: questions.length,
+        prompt: jumpQuestionSource.prompt,
+        options: jumpQuestionSource.options,
+        seconds: room.questionSeconds,
+      }
+    : null;
+
   return {
     room: {
       code: room.code,
@@ -175,6 +207,9 @@ export async function getRoomSnapshot(
       currentQuestion: room.currentQuestion,
       questionCount: questions.length,
       questionSeconds: room.questionSeconds,
+      gameMode: room.gameMode,
+      gameDurationSeconds: room.gameDurationSeconds,
+      gameStartedAt: room.gameStartedAt,
       maxPlayers: room.maxPlayers,
       playerCount,
       answeredCount,
@@ -187,9 +222,13 @@ export async function getRoomSnapshot(
           nickname: player.nickname,
           score: player.score,
           correctCount: player.correctCount,
+          maxHeight: player.maxHeight,
+          energy: player.energy,
+          jumpQuestionIndex: player.jumpQuestionIndex,
         }
       : null,
     myAnswer,
+    jumpQuestion,
     isHost,
   };
 }

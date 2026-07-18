@@ -2,10 +2,12 @@
 
 import QRCode from "qrcode";
 import Image from "next/image";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { JumpGame } from "@/components/JumpGame";
 import { QUESTIONS } from "@/lib/questions";
 
-type Phase = "lobby" | "question" | "reveal" | "finished";
+type Phase = "lobby" | "question" | "reveal" | "jump" | "finished";
+type GameMode = "quiz" | "jump";
 
 type LeaderboardRow = {
   id: string;
@@ -13,6 +15,8 @@ type LeaderboardRow = {
   score: number;
   correctCount: number;
   totalResponseMs: number;
+  maxHeight: number;
+  energy: number;
 };
 
 type Snapshot = {
@@ -25,6 +29,9 @@ type Snapshot = {
     answeredCount: number;
     questionCount: number;
     questionSeconds: number;
+    gameMode: GameMode;
+    gameDurationSeconds: number;
+    gameStartedAt: number | null;
   };
   question: null | {
     index: number;
@@ -43,12 +50,23 @@ type Snapshot = {
     nickname: string;
     score: number;
     correctCount: number;
+    maxHeight: number;
+    energy: number;
+    jumpQuestionIndex: number;
   };
   myAnswer: null | {
     answerIndex: number;
     isCorrect: boolean;
     points: number;
     responseMs: number;
+  };
+  jumpQuestion: null | {
+    index: number;
+    number: number;
+    total: number;
+    prompt: string;
+    options: string[];
+    seconds: number;
   };
   isHost: boolean;
 };
@@ -163,6 +181,7 @@ function HomeScreen({ onJoin, onCreate }: { onJoin: (code: string) => void; onCr
 
 const QUESTION_COUNTS = [5, 10, 15, 20] as const;
 const QUESTION_TIMES = [5, 10, 15, 20] as const;
+const JUMP_DURATIONS = [3, 5, 10] as const;
 
 type CustomQuestion = {
   id: string;
@@ -184,6 +203,8 @@ function isCustomQuestion(value: unknown): value is CustomQuestion {
     question.options.length === 4 &&
     question.options.every((option) => typeof option === "string") &&
     Number.isInteger(question.correctIndex) &&
+    question.correctIndex! >= 0 &&
+    question.correctIndex! <= 3 &&
     typeof question.explanation === "string"
   );
 }
@@ -192,6 +213,8 @@ function SetupScreen({ onBack, onCreated }: {
   onBack: () => void;
   onCreated: (code: string, token: string) => void;
 }) {
+  const [gameMode, setGameMode] = useState<GameMode>("quiz");
+  const [jumpDurationMinutes, setJumpDurationMinutes] = useState(5);
   const [questionCount, setQuestionCount] = useState(10);
   const [selected, setSelected] = useState<number[]>(QUESTIONS.slice(0, 10).map((_, index) => index));
   const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([]);
@@ -206,6 +229,7 @@ function SetupScreen({ onBack, onCreated }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const importInputRef = useRef<HTMLInputElement>(null);
   const selectedCount = selected.length + selectedCustom.length;
 
   useEffect(() => {
@@ -315,6 +339,61 @@ function SetupScreen({ onBack, onCreated }: {
     setError("");
   }
 
+  function exportCustomQuestions() {
+    if (!customQuestions.length) {
+      setError("ยังไม่มีคำถามเพิ่มเองให้ส่งออก");
+      return;
+    }
+    const file = new Blob([JSON.stringify({
+      format: "tax-battle-question-library",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      questions: customQuestions,
+    }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `tax-battle-questions-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setNotice(`ส่งออกคำถาม ${customQuestions.length} ข้อแล้ว`);
+    setError("");
+  }
+
+  async function importCustomQuestions(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      if (file.size > 1_000_000) throw new Error("ไฟล์ใหญ่เกิน 1 MB");
+      const parsed = JSON.parse(await file.text()) as unknown;
+      const source = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === "object" && Array.isArray((parsed as { questions?: unknown[] }).questions)
+          ? (parsed as { questions: unknown[] }).questions
+          : null;
+      if (!source) throw new Error("รูปแบบไฟล์ไม่ถูกต้อง");
+      const imported = source.filter(isCustomQuestion).map((item) => ({ ...item, id: crypto.randomUUID() }));
+      if (!imported.length) throw new Error("ไม่พบคำถามที่ใช้งานได้ในไฟล์");
+      const keys = new Set(customQuestions.map((item) => `${item.prompt}\u0000${item.options.join("\u0000")}`.toLocaleLowerCase("th-TH")));
+      const next = [...customQuestions];
+      let added = 0;
+      for (const item of imported) {
+        const key = `${item.prompt}\u0000${item.options.join("\u0000")}`.toLocaleLowerCase("th-TH");
+        if (keys.has(key) || next.length >= 100) continue;
+        keys.add(key);
+        next.push(item);
+        added += 1;
+      }
+      if (!added) throw new Error("คำถามในไฟล์มีอยู่ในคลังแล้วทั้งหมด หรือคลังเต็ม 100 ข้อ");
+      setCustomQuestions(next);
+      setNotice(`นำเข้าคำถามใหม่ ${added} ข้อแล้ว`);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "นำเข้าคำถามไม่สำเร็จ");
+    }
+  }
+
   async function createRoom() {
     if (selectedCount !== questionCount) {
       setError(`กรุณาเลือกคำถามให้ครบ ${questionCount} ข้อ`);
@@ -328,6 +407,8 @@ function SetupScreen({ onBack, onCreated }: {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            gameMode,
+            gameDurationSeconds: jumpDurationMinutes * 60,
             questionSeconds,
             selectedQuestions: selected,
             customQuestions: customQuestions.filter((question) => selectedCustom.includes(question.id)).map(({ prompt, options, correctIndex, explanation }) => ({
@@ -363,6 +444,18 @@ function SetupScreen({ onBack, onCreated }: {
             <div className="current-question-count"><span>เลือกแล้ว</span><strong>{selectedCount}/{questionCount}</strong></div>
           </div>
           <p>เลือกชุดคำถามและเวลาให้พร้อมก่อนเปิดห้อง การตั้งค่าจะถูกล็อกทันทีเมื่อสร้างห้อง</p>
+          <div className="mode-selector" aria-label="เลือกโหมดเกม">
+            <button className={gameMode === "quiz" ? "active" : ""} onClick={() => setGameMode("quiz")}>
+              <span className="mode-icon">◆</span>
+              <span><strong>Quiz Battle</strong><small>ตอบพร้อมกันแบบคลาสสิก</small></span>
+              <i>{gameMode === "quiz" ? "✓" : ""}</i>
+            </button>
+            <button className={gameMode === "jump" ? "active jump" : "jump"} onClick={() => setGameMode("jump")}>
+              <span className="mode-icon">↗</span>
+              <span><strong>Jump Battle</strong><small>กระโดดให้สูง ตอบ Quiz เติมพลัง</small></span>
+              <i>{gameMode === "jump" ? "✓" : ""}</i>
+            </button>
+          </div>
         </header>
 
         <section className="setup-step">
@@ -381,7 +474,15 @@ function SetupScreen({ onBack, onCreated }: {
           </div>
 
           <div className="question-section-block">
-            <div className="question-subheading"><div><span>เพิ่มเอง</span><h3>คำถามเพิ่มเอง</h3></div><small>{customQuestions.length} ข้อในคลัง · เลือก {selectedCustom.length}</small></div>
+            <div className="question-subheading question-library-heading">
+              <div><span>เพิ่มเอง</span><h3>คำถามเพิ่มเอง</h3></div>
+              <div className="library-heading-actions">
+                <small>{customQuestions.length} ข้อในคลัง · เลือก {selectedCustom.length}</small>
+                <button type="button" onClick={() => importInputRef.current?.click()}>นำเข้า JSON</button>
+                <button type="button" onClick={exportCustomQuestions} disabled={!customQuestions.length}>ส่งออก</button>
+                <input ref={importInputRef} className="hidden-file-input" type="file" accept="application/json,.json" onChange={importCustomQuestions} />
+              </div>
+            </div>
             <p className="question-library-note">บันทึกไว้ในเครื่องนี้อัตโนมัติ เพื่อเลือกใช้ซ้ำในห้องรอบถัดไป</p>
             <form className="custom-question-form" onSubmit={addCustomQuestion}>
               <label className="custom-field custom-prompt-field">
@@ -478,12 +579,23 @@ function SetupScreen({ onBack, onCreated }: {
           </div>
         </section>
 
+        {gameMode === "jump" && (
+          <section className="setup-step jump-duration-step">
+            <div className="step-title"><span className="step-number">4</span><div><h2>เวลาแข่งขัน Jump Battle</h2><p>ทุกคนเริ่มและจบพร้อมกัน ผู้คุมเห็นอันดับความสูงแบบสด</p></div></div>
+            <div className="segmented" aria-label="เวลาแข่งขันเกมกระโดด">
+              {JUMP_DURATIONS.map((minutes) => (
+                <button key={minutes} className={jumpDurationMinutes === minutes ? "active" : ""} onClick={() => setJumpDurationMinutes(minutes)}>{minutes} นาที</button>
+              ))}
+            </div>
+          </section>
+        )}
+
         {error && <ErrorBanner message={error} />}
         {notice && <div className="notice-banner">✓ {notice}</div>}
       </div>
 
       <div className="setup-actionbar">
-        <div><span>{selectedCount === questionCount ? "พร้อมสร้างห้อง" : `เลือกคำถามอีก ${questionCount - selectedCount} ข้อ`}</span><strong>{selectedCount}/{questionCount} ข้อ · {questionSeconds} วินาที/ข้อ</strong></div>
+        <div><span>{selectedCount === questionCount ? `พร้อมสร้างห้อง ${gameMode === "jump" ? "Jump Battle" : "Quiz Battle"}` : `เลือกคำถามอีก ${questionCount - selectedCount} ข้อ`}</span><strong>{selectedCount}/{questionCount} ข้อ · {questionSeconds} วินาที/ข้อ{gameMode === "jump" ? ` · ${jumpDurationMinutes} นาที` : ""}</strong></div>
         <button className="start-button" onClick={createRoom} disabled={busy || selectedCount !== questionCount}>
           {busy ? "กำลังสร้างห้อง…" : "สร้างห้องและรับ QR Code"} <span>→</span>
         </button>
@@ -547,7 +659,7 @@ function JoinScreen({ code, onJoined }: { code: string; onJoined: (token: string
   );
 }
 
-function Leaderboard({ rows, full = false }: { rows: LeaderboardRow[]; full?: boolean }) {
+function Leaderboard({ rows, full = false, mode = "quiz" }: { rows: LeaderboardRow[]; full?: boolean; mode?: GameMode }) {
   if (!rows.length) return <div className="empty-state">ยังไม่มีคะแนน</div>;
   return (
     <div className={`leaderboard ${full ? "leaderboard-full" : ""}`}>
@@ -555,8 +667,8 @@ function Leaderboard({ rows, full = false }: { rows: LeaderboardRow[]; full?: bo
         <div className={`leader-row rank-${index + 1}`} key={row.id}>
           <span className="rank-number">{index + 1}</span>
           <span className="leader-name">{row.nickname}</span>
-          <span className="leader-correct">ถูก {row.correctCount}</span>
-          <strong>{formatNumber(row.score)}</strong>
+          <span className="leader-correct">{mode === "jump" ? `Quiz ถูก ${row.correctCount} · ${formatNumber(row.score)} pt` : `ถูก ${row.correctCount}`}</span>
+          <strong>{mode === "jump" ? `${formatNumber(row.maxHeight)} ม.` : formatNumber(row.score)}</strong>
         </div>
       ))}
     </div>
@@ -661,10 +773,11 @@ function useSnapshot(code: string, kind: "host" | "player", token: string) {
   return { snapshot, error, refresh };
 }
 
-function PodiumPlace({ rank, row, revealed }: {
+function PodiumPlace({ rank, row, revealed, mode }: {
   rank: 1 | 2 | 3;
   row?: LeaderboardRow;
   revealed: boolean;
+  mode: GameMode;
 }) {
   const medals = { 1: "★", 2: "◆", 3: "●" };
   return (
@@ -672,16 +785,17 @@ function PodiumPlace({ rank, row, revealed }: {
       <div className="podium-player">
         <span className="podium-medal">{revealed ? medals[rank] : "?"}</span>
         <p>{revealed ? row?.nickname ?? "ยังไม่มีผู้เล่น" : `กำลังเปิดเผยอันดับ ${rank}`}</p>
-        <strong>{revealed && row ? `${formatNumber(row.score)} คะแนน` : "••••••"}</strong>
+        <strong>{revealed && row ? mode === "jump" ? `${formatNumber(row.maxHeight)} เมตร` : `${formatNumber(row.score)} คะแนน` : "••••••"}</strong>
       </div>
       <div className="podium-block"><span>{rank}</span></div>
     </article>
   );
 }
 
-function FinalPodium({ rows, onComplete }: {
+function FinalPodium({ rows, onComplete, mode }: {
   rows: LeaderboardRow[];
   onComplete: () => void;
+  mode: GameMode;
 }) {
   const [stage, setStage] = useState(0);
 
@@ -713,12 +827,12 @@ function FinalPodium({ rows, onComplete }: {
       <header className="podium-heading">
         <p className="eyebrow">FINAL PODIUM</p>
         <h1 key={stage}>{announcement}</h1>
-        <p>วัดจากคะแนน ความถูกต้อง และความเร็ว</p>
+        <p>{mode === "jump" ? "วัดจากความสูงสูงสุด และใช้คะแนน Quiz ตัดสินเมื่อเสมอ" : "วัดจากคะแนน ความถูกต้อง และความเร็ว"}</p>
       </header>
       <div className="podium-grid">
-        <PodiumPlace rank={2} row={rows[1]} revealed={stage >= 2} />
-        <PodiumPlace rank={1} row={rows[0]} revealed={stage >= 3} />
-        <PodiumPlace rank={3} row={rows[2]} revealed={stage >= 1} />
+        <PodiumPlace rank={2} row={rows[1]} revealed={stage >= 2} mode={mode} />
+        <PodiumPlace rank={1} row={rows[0]} revealed={stage >= 3} mode={mode} />
+        <PodiumPlace rank={3} row={rows[2]} revealed={stage >= 1} mode={mode} />
       </div>
       <div className="podium-footer">
         <div className="podium-progress" aria-label={`ขั้นประกาศผล ${stage} จาก 3`}>
@@ -730,11 +844,55 @@ function FinalPodium({ rows, onComplete }: {
   );
 }
 
+function HostJumpDashboard({ snapshot, onFinish, busy }: {
+  snapshot: Snapshot;
+  onFinish: () => void;
+  busy: boolean;
+}) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, []);
+  const effectiveNow = now || snapshot.room.gameStartedAt || 0;
+  const endAt = (snapshot.room.gameStartedAt ?? effectiveNow) + snapshot.room.gameDurationSeconds * 1000;
+  const remaining = Math.max(0, Math.ceil((endAt - effectiveNow) / 1000));
+  const minutes = String(Math.floor(remaining / 60)).padStart(2, "0");
+  const seconds = String(remaining % 60).padStart(2, "0");
+  const peak = snapshot.leaderboard[0]?.maxHeight ?? 0;
+  const average = snapshot.leaderboard.length
+    ? Math.round(snapshot.leaderboard.reduce((sum, row) => sum + row.maxHeight, 0) / snapshot.leaderboard.length)
+    : 0;
+  const correct = snapshot.leaderboard.reduce((sum, row) => sum + row.correctCount, 0);
+  const progress = Math.max(0, Math.min(100, (remaining / snapshot.room.gameDurationSeconds) * 100));
+
+  return (
+    <section className="host-jump-dashboard">
+      <header className="host-jump-heading">
+        <div><p className="eyebrow">JUMP BATTLE · LIVE</p><h1>ใครจะขึ้นไปได้สูงที่สุด?</h1><p>ความสูงเป็นอันดับหลัก · คะแนน Quiz ใช้ตัดสินเมื่อเสมอ</p></div>
+        <div className="host-jump-clock"><span>เหลือเวลา</span><strong>{minutes}:{seconds}</strong><div><i style={{ width: `${progress}%` }} /></div></div>
+      </header>
+      <div className="host-jump-stats">
+        <article><span>ผู้เล่นในสนาม</span><strong>{snapshot.room.playerCount}</strong><small>คน</small></article>
+        <article><span>จุดสูงสุด</span><strong>{formatNumber(peak)}</strong><small>เมตร</small></article>
+        <article><span>ความสูงเฉลี่ย</span><strong>{formatNumber(average)}</strong><small>เมตร</small></article>
+        <article><span>ตอบถูกสะสม</span><strong>{formatNumber(correct)}</strong><small>ข้อ</small></article>
+      </div>
+      <div className="host-jump-ranking">
+        <div className="host-jump-ranking-head"><div><span>LIVE RANKING</span><h2>อันดับความสูงล่าสุด</h2></div><span className="connection-dot">อัปเดตอัตโนมัติ</span></div>
+        <Leaderboard rows={snapshot.leaderboard} mode="jump" full />
+      </div>
+      <button className="finish-jump-button" onClick={onFinish} disabled={busy}>จบการแข่งขันก่อนเวลา</button>
+    </section>
+  );
+}
+
 function HostScreen({ code, token }: { code: string; token: string }) {
   const { snapshot, error, refresh } = useSnapshot(code, "host", token);
   const [qr, setQr] = useState("");
   const [busy, setBusy] = useState(false);
   const [showPodium, setShowPodium] = useState(false);
+  const previousPhase = useRef<Phase | null>(null);
   const joinUrl = useMemo(() => (typeof window === "undefined" ? "" : `${window.location.origin}/?join=${code}`), [code]);
   const finishPodium = useCallback(() => setShowPodium(false), []);
 
@@ -747,6 +905,12 @@ function HostScreen({ code, token }: { code: string; token: string }) {
       color: { dark: "#071019", light: "#ffffff" },
     }).then(setQr);
   }, [joinUrl]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    if (previousPhase.current === "jump" && snapshot.room.phase === "finished") setShowPodium(true);
+    previousPhase.current = snapshot.room.phase;
+  }, [snapshot]);
 
   async function control(action: string) {
     setBusy(true);
@@ -797,6 +961,7 @@ function HostScreen({ code, token }: { code: string; token: string }) {
               <div><p>ผู้เล่นพร้อมแล้ว</p><strong>{snapshot.room.playerCount}<small>/{snapshot.room.maxPlayers}</small></strong></div>
               <div className="lobby-status-stack">
                 <StatusPill tone="lime">กำลังรอ</StatusPill>
+                <StatusPill>{snapshot.room.gameMode === "jump" ? `Jump Battle · ${snapshot.room.gameDurationSeconds / 60} นาที` : "Quiz Battle"}</StatusPill>
                 <StatusPill>{snapshot.room.questionCount} ข้อ · {snapshot.room.questionSeconds} วินาที/ข้อ</StatusPill>
               </div>
             </div>
@@ -806,7 +971,7 @@ function HostScreen({ code, token }: { code: string; token: string }) {
               )) : <div className="empty-roster"><span>↗</span>รายชื่อจะปรากฏที่นี่</div>}
             </div>
             <button className="start-button" onClick={() => control("start")} disabled={busy}>
-              เริ่มเกม {snapshot.room.questionCount} ข้อ <span>→</span>
+              {snapshot.room.gameMode === "jump" ? `เริ่ม Jump Battle ${snapshot.room.gameDurationSeconds / 60} นาที` : `เริ่มเกม ${snapshot.room.questionCount} ข้อ`} <span>→</span>
             </button>
           </div>
         </section>
@@ -836,19 +1001,23 @@ function HostScreen({ code, token }: { code: string; token: string }) {
         </>
       )}
 
+      {phase === "jump" && (
+        <HostJumpDashboard snapshot={snapshot} onFinish={() => control("finish")} busy={busy} />
+      )}
+
       {phase === "finished" && showPodium && (
-        <FinalPodium rows={snapshot.leaderboard.slice(0, 3)} onComplete={finishPodium} />
+        <FinalPodium rows={snapshot.leaderboard.slice(0, 3)} onComplete={finishPodium} mode={snapshot.room.gameMode} />
       )}
 
       {phase === "finished" && !showPodium && (
         <section className="results-layout">
           <div className="results-title">
             <p className="eyebrow">FINAL SCORE</p>
-            <h1>สุดยอดนักวางแผนภาษี</h1>
-            <p>คะแนนรวมจากความถูกต้องและความเร็วทั้ง {snapshot.room.questionCount} ข้อ</p>
+            <h1>{snapshot.room.gameMode === "jump" ? "ยอดนักกระโดดแห่ง Tax Battle" : "สุดยอดนักวางแผนภาษี"}</h1>
+            <p>{snapshot.room.gameMode === "jump" ? "เรียงตามความสูงสูงสุด และใช้คะแนน Quiz ตัดสินเมื่อเสมอ" : `คะแนนรวมจากความถูกต้องและความเร็วทั้ง ${snapshot.room.questionCount} ข้อ`}</p>
             <button className="secondary-button" onClick={() => control("reset")} disabled={busy}>เล่นอีกรอบ</button>
           </div>
-          <Leaderboard rows={snapshot.leaderboard} full />
+          <Leaderboard rows={snapshot.leaderboard} full mode={snapshot.room.gameMode} />
         </section>
       )}
     </main>
@@ -891,7 +1060,7 @@ function PlayerScreen({ code, token }: { code: string; token: string }) {
         <Brand />
         <div className="player-summary">
           <span>{snapshot.player?.nickname}</span>
-          <strong>{formatNumber(snapshot.player?.score ?? 0)} คะแนน</strong>
+          <strong>{snapshot.room.gameMode === "jump" ? `${formatNumber(snapshot.player?.maxHeight ?? 0)} ม. · Quiz ${formatNumber(snapshot.player?.score ?? 0)}` : `${formatNumber(snapshot.player?.score ?? 0)} คะแนน`}</strong>
         </div>
       </nav>
 
@@ -902,7 +1071,7 @@ function PlayerScreen({ code, token }: { code: string; token: string }) {
           <div className="waiting-pulse"><span>✓</span></div>
           <p className="eyebrow">เข้าห้อง {code} แล้ว</p>
           <h1>พร้อมแล้ว!</h1>
-          <p>รอผู้สอนเริ่มเกม หน้านี้จะเปลี่ยนอัตโนมัติ</p>
+          <p>รอผู้สอนเริ่ม {snapshot.room.gameMode === "jump" ? "Jump Battle" : "เกม Quiz"} หน้านี้จะเปลี่ยนอัตโนมัติ</p>
           <div className="waiting-count">ผู้เล่นในห้อง <strong>{snapshot.room.playerCount}</strong>/{snapshot.room.maxPlayers}</div>
         </section>
       )}
@@ -931,13 +1100,27 @@ function PlayerScreen({ code, token }: { code: string; token: string }) {
         </section>
       )}
 
+      {phase === "jump" && snapshot.room.gameStartedAt && snapshot.jumpQuestion && snapshot.player && (
+        <JumpGame
+          code={code}
+          token={token}
+          gameStartedAt={snapshot.room.gameStartedAt}
+          durationSeconds={snapshot.room.gameDurationSeconds}
+          initialEnergy={snapshot.player.energy}
+          initialHeight={snapshot.player.maxHeight}
+          initialScore={snapshot.player.score}
+          question={snapshot.jumpQuestion}
+          onRefresh={refresh}
+        />
+      )}
+
       {phase === "finished" && (
         <section className="phone-results">
           <p className="eyebrow">จบการแข่งขัน</p>
           <h1>{snapshot.player?.nickname}</h1>
-          <div className="final-score">{formatNumber(snapshot.player?.score ?? 0)}<span>คะแนน</span></div>
-          <p>ตอบถูก {snapshot.player?.correctCount ?? 0} จาก {snapshot.room.questionCount} ข้อ</p>
-          <Leaderboard rows={snapshot.leaderboard.slice(0, 10)} />
+          <div className="final-score">{formatNumber(snapshot.room.gameMode === "jump" ? snapshot.player?.maxHeight ?? 0 : snapshot.player?.score ?? 0)}<span>{snapshot.room.gameMode === "jump" ? "เมตรสูงสุด" : "คะแนน"}</span></div>
+          <p>{snapshot.room.gameMode === "jump" ? `Quiz ${formatNumber(snapshot.player?.score ?? 0)} คะแนน · ตอบถูก ${snapshot.player?.correctCount ?? 0} ข้อ` : `ตอบถูก ${snapshot.player?.correctCount ?? 0} จาก ${snapshot.room.questionCount} ข้อ`}</p>
+          <Leaderboard rows={snapshot.leaderboard.slice(0, 10)} mode={snapshot.room.gameMode} />
           <button className="secondary-button" onClick={() => (window.location.href = "/")}>กลับหน้าหลัก</button>
         </section>
       )}

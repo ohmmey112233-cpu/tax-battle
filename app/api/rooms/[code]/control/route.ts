@@ -35,7 +35,21 @@ export async function POST(
     case "start":
       await db
         .update(rooms)
-        .set({ phase: "question", currentQuestion: 0, questionStartedAt: now, updatedAt: now })
+        .set(room.gameMode === "jump"
+          ? {
+              phase: "jump",
+              currentQuestion: -1,
+              questionStartedAt: null,
+              gameStartedAt: now,
+              updatedAt: now,
+            }
+          : {
+              phase: "question",
+              currentQuestion: 0,
+              questionStartedAt: now,
+              gameStartedAt: now,
+              updatedAt: now,
+            })
         .where(eq(rooms.id, room.id));
       break;
     case "reveal":
@@ -71,11 +85,24 @@ export async function POST(
       await db.delete(answers).where(eq(answers.roomId, room.id));
       await db
         .update(players)
-        .set({ score: 0, correctCount: 0, totalResponseMs: 0 })
+        .set({
+          score: 0,
+          correctCount: 0,
+          totalResponseMs: 0,
+          maxHeight: 0,
+          energy: 100,
+          jumpQuestionIndex: 0,
+        })
         .where(eq(players.roomId, room.id));
       await db
         .update(rooms)
-        .set({ phase: "lobby", currentQuestion: -1, questionStartedAt: null, updatedAt: now })
+        .set({
+          phase: "lobby",
+          currentQuestion: -1,
+          questionStartedAt: null,
+          gameStartedAt: null,
+          updatedAt: now,
+        })
         .where(eq(rooms.id, room.id));
       break;
     default:

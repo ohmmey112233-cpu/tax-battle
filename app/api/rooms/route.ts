@@ -4,6 +4,8 @@ import { noStoreHeaders } from "@/lib/game";
 import { QUESTIONS, type QuizQuestion } from "@/lib/questions";
 
 const VALID_SECONDS = [5, 10, 15, 20];
+const VALID_DURATIONS = [180, 300, 600];
+const VALID_MODES = ["quiz", "jump"] as const;
 
 function customQuestion(value: unknown, seconds: number): QuizQuestion | null {
   if (!value || typeof value !== "object") return null;
@@ -41,10 +43,18 @@ function roomCode() {
 
 export async function POST(request: Request) {
   const payload = (await request.json().catch(() => ({}))) as {
+    gameMode?: string;
+    gameDurationSeconds?: number;
     questionSeconds?: number;
     selectedQuestions?: number[];
     customQuestions?: unknown[];
   };
+  const gameMode = VALID_MODES.includes(payload.gameMode as (typeof VALID_MODES)[number])
+    ? payload.gameMode as (typeof VALID_MODES)[number]
+    : "quiz";
+  const gameDurationSeconds = VALID_DURATIONS.includes(payload.gameDurationSeconds ?? 300)
+    ? payload.gameDurationSeconds ?? 300
+    : 300;
   const questionSeconds = VALID_SECONDS.includes(payload.questionSeconds ?? 15)
     ? payload.questionSeconds ?? 15
     : 15;
@@ -95,6 +105,9 @@ export async function POST(request: Request) {
         questionCount,
         questionSeconds,
         selectedQuestions: JSON.stringify(questionSet),
+        gameMode,
+        gameDurationSeconds,
+        gameStartedAt: null,
         maxPlayers: 150,
         createdAt: now,
         updatedAt: now,
