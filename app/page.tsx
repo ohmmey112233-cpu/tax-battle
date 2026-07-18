@@ -476,11 +476,82 @@ function useSnapshot(code: string, kind: "host" | "player", token: string) {
   return { snapshot, error, refresh };
 }
 
+function PodiumPlace({ rank, row, revealed }: {
+  rank: 1 | 2 | 3;
+  row?: LeaderboardRow;
+  revealed: boolean;
+}) {
+  const medals = { 1: "★", 2: "◆", 3: "●" };
+  return (
+    <article className={`podium-place podium-rank-${rank} ${revealed ? "is-revealed" : ""}`}>
+      <div className="podium-player">
+        <span className="podium-medal">{revealed ? medals[rank] : "?"}</span>
+        <p>{revealed ? row?.nickname ?? "ยังไม่มีผู้เล่น" : `กำลังเปิดเผยอันดับ ${rank}`}</p>
+        <strong>{revealed && row ? `${formatNumber(row.score)} คะแนน` : "••••••"}</strong>
+      </div>
+      <div className="podium-block"><span>{rank}</span></div>
+    </article>
+  );
+}
+
+function FinalPodium({ rows, onComplete }: {
+  rows: LeaderboardRow[];
+  onComplete: () => void;
+}) {
+  const [stage, setStage] = useState(0);
+
+  useEffect(() => {
+    const timers = [
+      window.setTimeout(() => setStage(1), 1400),
+      window.setTimeout(() => setStage(2), 3600),
+      window.setTimeout(() => setStage(3), 5800),
+      window.setTimeout(onComplete, 11000),
+    ];
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [onComplete]);
+
+  const announcement = stage === 0
+    ? "กำลังคำนวณคะแนนสุดท้าย…"
+    : stage === 1
+      ? "อันดับ 3 ได้แก่…"
+      : stage === 2
+        ? "ต่อไป อันดับ 2…"
+        : "แชมป์ Tax Battle คือ!";
+
+  return (
+    <section className={`podium-reveal podium-stage-${stage}`} aria-live="polite">
+      <div className="podium-spotlight spotlight-left" />
+      <div className="podium-spotlight spotlight-right" />
+      <div className="podium-confetti" aria-hidden="true">
+        {Array.from({ length: 18 }, (_, index) => <span key={index} style={{ "--confetti-index": index } as React.CSSProperties} />)}
+      </div>
+      <header className="podium-heading">
+        <p className="eyebrow">FINAL PODIUM</p>
+        <h1 key={stage}>{announcement}</h1>
+        <p>วัดจากคะแนน ความถูกต้อง และความเร็ว</p>
+      </header>
+      <div className="podium-grid">
+        <PodiumPlace rank={2} row={rows[1]} revealed={stage >= 2} />
+        <PodiumPlace rank={1} row={rows[0]} revealed={stage >= 3} />
+        <PodiumPlace rank={3} row={rows[2]} revealed={stage >= 1} />
+      </div>
+      <div className="podium-footer">
+        <div className="podium-progress" aria-label={`ขั้นประกาศผล ${stage} จาก 3`}>
+          {[1, 2, 3].map((step) => <span className={stage >= step ? "active" : ""} key={step} />)}
+        </div>
+        <button className="podium-skip" onClick={onComplete}>ดูคะแนนรวมทันที →</button>
+      </div>
+    </section>
+  );
+}
+
 function HostScreen({ code, token }: { code: string; token: string }) {
   const { snapshot, error, refresh } = useSnapshot(code, "host", token);
   const [qr, setQr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPodium, setShowPodium] = useState(false);
   const joinUrl = useMemo(() => (typeof window === "undefined" ? "" : `${window.location.origin}/?join=${code}`), [code]);
+  const finishPodium = useCallback(() => setShowPodium(false), []);
 
   useEffect(() => {
     if (!joinUrl) return;
@@ -500,6 +571,10 @@ function HostScreen({ code, token }: { code: string; token: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hostToken: token, action }),
       }));
+      if (action === "next" && snapshot?.question?.number === snapshot?.question?.total) {
+        setShowPodium(true);
+      }
+      if (action === "reset") setShowPodium(false);
       await refresh();
     } finally {
       setBusy(false);
@@ -576,7 +651,11 @@ function HostScreen({ code, token }: { code: string; token: string }) {
         </>
       )}
 
-      {phase === "finished" && (
+      {phase === "finished" && showPodium && (
+        <FinalPodium rows={snapshot.leaderboard.slice(0, 3)} onComplete={finishPodium} />
+      )}
+
+      {phase === "finished" && !showPodium && (
         <section className="results-layout">
           <div className="results-title">
             <p className="eyebrow">FINAL SCORE</p>

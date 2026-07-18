@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { players } from "@/db/schema";
 import {
@@ -36,17 +36,6 @@ export async function POST(
   }
 
   const db = await getDb();
-  const [{ value: playerCount }] = await db
-    .select({ value: count() })
-    .from(players)
-    .where(eq(players.roomId, room.id));
-  if (playerCount >= room.maxPlayers) {
-    return Response.json(
-      { error: "ห้องเต็มแล้ว (สูงสุด 120 คน)" },
-      { status: 409, headers: noStoreHeaders }
-    );
-  }
-
   const key = nicknameKey(nickname);
   const [duplicate] = await db
     .select({ id: players.id })
@@ -64,15 +53,24 @@ export async function POST(
   const token = crypto.randomUUID();
   const now = Date.now();
   try {
-    await db.insert(players).values({
-      id,
-      roomId: room.id,
-      nickname,
-      nicknameKey: key,
-      token,
-      joinedAt: now,
-      lastSeenAt: now,
-    });
+    const inserted = await db.run(sql`
+      INSERT INTO players (
+        id, room_id, nickname, nickname_key, token,
+        score, correct_count, total_response_ms, joined_at, last_seen_at
+      )
+      SELECT
+        ${id}, ${room.id}, ${nickname}, ${key}, ${token},
+        0, 0, 0, ${now}, ${now}
+      WHERE (
+        SELECT COUNT(*) FROM players WHERE room_id = ${room.id}
+      ) < ${room.maxPlayers}
+    `);
+    if (inserted.meta.changes === 0) {
+      return Response.json(
+        { error: `ห้องเต็มแล้ว (สูงสุด ${room.maxPlayers} คน)` },
+        { status: 409, headers: noStoreHeaders },
+      );
+    }
   } catch {
     return Response.json(
       { error: "เข้าร่วมห้องไม่สำเร็จ กรุณาเปลี่ยนชื่อแล้วลองใหม่" },
