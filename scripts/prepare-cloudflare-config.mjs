@@ -1,23 +1,23 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+let accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
 const databaseName = "tax-battle-db";
 
-if (!accountId || !apiToken) {
+if (!apiToken) {
   throw new Error(
-    "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required.",
+    "CLOUDFLARE_API_TOKEN is required.",
   );
 }
 
-const apiBase = `https://api.cloudflare.com/client/v4/accounts/${accountId}`;
+const apiRoot = "https://api.cloudflare.com/client/v4";
 const headers = {
   Authorization: `Bearer ${apiToken}`,
   "Content-Type": "application/json",
 };
 
-async function cloudflare(path, init = {}) {
-  const response = await fetch(`${apiBase}${path}`, {
+async function request(url, init = {}) {
+  const response = await fetch(url, {
     ...init,
     headers: { ...headers, ...init.headers },
   });
@@ -30,6 +30,20 @@ async function cloudflare(path, init = {}) {
 
   return payload.result;
 }
+
+if (!accountId || !/^[a-f0-9]{32}$/i.test(accountId)) {
+  const accounts = await request(`${apiRoot}/accounts?per_page=50`);
+  if (accounts.length !== 1) {
+    throw new Error(
+      "CLOUDFLARE_ACCOUNT_ID must be the 32-character account ID when the token can access more than one account.",
+    );
+  }
+  accountId = accounts[0].id;
+  console.log("Resolved the Cloudflare account from the API token.");
+}
+
+const apiBase = `${apiRoot}/accounts/${accountId}`;
+const cloudflare = (path, init) => request(`${apiBase}${path}`, init);
 
 const databases = await cloudflare(
   `/d1/database?name=${encodeURIComponent(databaseName)}`,
