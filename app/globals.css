@@ -612,6 +612,7 @@ input:focus { box-shadow: 0 0 0 5px rgba(0,229,255,.1); }
 .question-subheading span { color: var(--teal); font-size: 10px; font-weight: 950; letter-spacing: .12em; text-transform: uppercase; }
 .question-subheading h3 { margin: 2px 0 0; color: var(--ink); font-size: 19px; }
 .question-subheading small { padding: 6px 10px; border-radius: 999px; background: rgba(0,229,255,.08); color: var(--aqua); font-size: 11px; font-weight: 800; }
+.question-library-note { margin: 9px 0 0; color: var(--muted); font-size: 12px; }
 .custom-question-form { margin-top: 24px; padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: rgba(5,11,18,.58); }
 .custom-field { margin: 0; }
 .custom-field > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 12px; font-weight: 800; }

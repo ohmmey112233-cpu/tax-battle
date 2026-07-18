@@ -172,6 +172,22 @@ type CustomQuestion = {
   explanation: string;
 };
 
+const CUSTOM_QUESTION_LIBRARY_KEY = "tax-battle-custom-question-library-v1";
+
+function isCustomQuestion(value: unknown): value is CustomQuestion {
+  if (!value || typeof value !== "object") return false;
+  const question = value as Partial<CustomQuestion>;
+  return (
+    typeof question.id === "string" &&
+    typeof question.prompt === "string" &&
+    Array.isArray(question.options) &&
+    question.options.length === 4 &&
+    question.options.every((option) => typeof option === "string") &&
+    Number.isInteger(question.correctIndex) &&
+    typeof question.explanation === "string"
+  );
+}
+
 function SetupScreen({ onBack, onCreated }: {
   onBack: () => void;
   onCreated: (code: string, token: string) => void;
@@ -180,6 +196,7 @@ function SetupScreen({ onBack, onCreated }: {
   const [selected, setSelected] = useState<number[]>(QUESTIONS.slice(0, 10).map((_, index) => index));
   const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([]);
   const [selectedCustom, setSelectedCustom] = useState<string[]>([]);
+  const [customLibraryReady, setCustomLibraryReady] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [customOptions, setCustomOptions] = useState<[string, string, string, string]>(["", "", "", ""]);
   const [customCorrectIndex, setCustomCorrectIndex] = useState(0);
@@ -190,6 +207,28 @@ function SetupScreen({ onBack, onCreated }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const selectedCount = selected.length + selectedCustom.length;
+
+  useEffect(() => {
+    const loadLibrary = window.setTimeout(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(CUSTOM_QUESTION_LIBRARY_KEY) ?? "[]") as unknown;
+        if (Array.isArray(saved)) setCustomQuestions(saved.filter(isCustomQuestion).slice(0, 100));
+      } catch {
+        // Ignore malformed browser storage and start with an empty library.
+      }
+      setCustomLibraryReady(true);
+    }, 0);
+    return () => window.clearTimeout(loadLibrary);
+  }, []);
+
+  useEffect(() => {
+    if (!customLibraryReady) return;
+    try {
+      localStorage.setItem(CUSTOM_QUESTION_LIBRARY_KEY, JSON.stringify(customQuestions));
+    } catch {
+      // The game can continue even if browser storage is unavailable.
+    }
+  }, [customLibraryReady, customQuestions]);
 
   function changeCount(nextCount: number) {
     const nextCustom = selectedCustom.slice(0, nextCount);
@@ -342,7 +381,8 @@ function SetupScreen({ onBack, onCreated }: {
           </div>
 
           <div className="question-section-block">
-            <div className="question-subheading"><div><span>เพิ่มเอง</span><h3>คำถามเพิ่มเอง</h3></div><small>{selectedCustom.length} ข้อที่เลือก</small></div>
+            <div className="question-subheading"><div><span>เพิ่มเอง</span><h3>คำถามเพิ่มเอง</h3></div><small>{customQuestions.length} ข้อในคลัง · เลือก {selectedCustom.length}</small></div>
+            <p className="question-library-note">บันทึกไว้ในเครื่องนี้อัตโนมัติ เพื่อเลือกใช้ซ้ำในห้องรอบถัดไป</p>
             <form className="custom-question-form" onSubmit={addCustomQuestion}>
               <label className="custom-field custom-prompt-field">
                 <span>คำถาม</span>

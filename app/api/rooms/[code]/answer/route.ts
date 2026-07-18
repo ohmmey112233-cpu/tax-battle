@@ -1,6 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { answers, players } from "@/db/schema";
+import { answers, players, rooms } from "@/db/schema";
 import {
   getPlayerByToken,
   getRoomByCode,
@@ -121,6 +121,32 @@ export async function POST(
       { error: "ตอบข้อนี้ไปแล้ว" },
       { status: 409, headers: noStoreHeaders }
     );
+  }
+
+  try {
+    const [[{ value: answeredCount }], [{ value: playerCount }]] = await Promise.all([
+      db
+        .select({ value: count() })
+        .from(answers)
+        .where(
+          and(
+            eq(answers.roomId, room.id),
+            eq(answers.questionIndex, room.currentQuestion),
+          ),
+        ),
+      db
+        .select({ value: count() })
+        .from(players)
+        .where(eq(players.roomId, room.id)),
+    ]);
+    if (playerCount > 0 && answeredCount >= playerCount) {
+      await db
+        .update(rooms)
+        .set({ phase: "reveal", updatedAt: Date.now() })
+        .where(and(eq(rooms.id, room.id), eq(rooms.phase, "question")));
+    }
+  } catch {
+    // Keep the accepted answer even if automatic reveal needs the host fallback.
   }
 
   return Response.json({ accepted: true, pointsPending: true }, { headers: noStoreHeaders });
