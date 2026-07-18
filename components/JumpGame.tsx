@@ -27,8 +27,9 @@ type Platform = {
   x: number;
   y: number;
   width: number;
-  type: "grass" | "bridge" | "cloud" | "crate";
-  doubleHint: boolean;
+  type: "grass" | "bridge" | "cloud" | "crate" | "stone" | "metal";
+  decor: "flag" | "plant" | "lamp" | "coin" | null;
+  summit: number | null;
 };
 
 type PlayerPhysics = {
@@ -83,39 +84,42 @@ function randomGenerator(seed: number) {
 function makePlatforms(seedText: string) {
   const random = randomGenerator(hashSeed(seedText));
   const platforms: Platform[] = [
-    { x: 42, y: 0, width: 276, type: "grass", doubleHint: false },
+    { x: 42, y: 0, width: 276, type: "grass", decor: "flag", summit: 0 },
   ];
   let previousCenter = WORLD_WIDTH / 2;
   let y = 0;
 
   for (let index = 1; index < 170; index += 1) {
     const difficulty = Math.min(1, index / 115);
-    const isBridge = index % 9 === 0;
-    const isCloud = index % 13 === 0;
-    const isCrate = index % 7 === 0 && !isBridge && !isCloud;
-    const doubleHint = index > 8 && index % 8 === 0;
-    const verticalGap = doubleHint
-      ? 96 + random() * (13 + difficulty * 9)
-      : 62 + random() * (24 + difficulty * 27);
-    const width = isBridge
+    const summit = index % 28 === 0 ? index / 28 : null;
+    const isBridge = !summit && index % 9 === 0;
+    const isCloud = !summit && index % 13 === 0;
+    const isCrate = !summit && index % 7 === 0 && !isBridge && !isCloud;
+    const isMetal = !summit && index > 80 && index % 5 === 0;
+    const isStone = !summit && index > 35 && index % 4 === 0;
+    // Every route is reachable with one jump. Higher zones get narrower,
+    // less forgiving platforms rather than impossible vertical gaps.
+    const verticalGap = summit ? 68 : 58 + random() * (24 + difficulty * 10);
+    const width = summit
+      ? 238
+      : isBridge
       ? 142 + random() * 28
       : isCloud
         ? 92 + random() * 34
         : isCrate
           ? 70 + random() * 24
           : Math.max(72, 126 - difficulty * 42 + random() * 30);
-    const direction = random() > 0.5 ? 1 : -1;
-    const shift = doubleHint
-      ? direction * (105 + random() * 30)
-      : (random() - 0.5) * (150 + difficulty * 64);
+    const shift = summit ? WORLD_WIDTH / 2 - previousCenter : (random() - 0.5) * (150 + difficulty * 44);
     const center = Math.max(width / 2 + 12, Math.min(WORLD_WIDTH - width / 2 - 12, previousCenter + shift));
     y += verticalGap;
+    const decorRoll = index % 11;
     platforms.push({
       x: center - width / 2,
       y,
       width,
-      type: isBridge ? "bridge" : isCloud ? "cloud" : isCrate ? "crate" : "grass",
-      doubleHint,
+      type: isBridge ? "bridge" : isCloud ? "cloud" : isCrate ? "crate" : isMetal ? "metal" : isStone ? "stone" : "grass",
+      decor: summit !== null ? "flag" : decorRoll === 2 ? "plant" : decorRoll === 5 ? "lamp" : decorRoll === 8 ? "coin" : null,
+      summit,
     });
     previousCenter = center;
   }
@@ -170,10 +174,9 @@ export function JumpGame({
   const lastFrameRef = useRef(0);
   const lastHudRef = useRef(0);
   const lastSyncRef = useRef(0);
-  const timeoutSentRef = useRef(false);
   const finalSyncSentRef = useRef(false);
   const questionIndexRef = useRef(question.index);
-  const platforms = useMemo(() => makePlatforms(`${code}-${token}`), [code, token]);
+  const platforms = useMemo(() => makePlatforms(code), [code]);
   const [energy, setEnergy] = useState(energyRef.current);
   const [maxHeight, setMaxHeight] = useState(maxHeightRef.current);
   const [score, setScore] = useState(initialScore);
@@ -184,19 +187,13 @@ export function JumpGame({
   const [answerResult, setAnswerResult] = useState<JumpAnswerResult | null>(null);
   const [answering, setAnswering] = useState(false);
   const [quizError, setQuizError] = useState("");
-  const [toast, setToast] = useState("แตะปุ่มกระโดด 2 ครั้งกลางอากาศเพื่อ Double Jump");
+  const [toast, setToast] = useState("วิ่งแล้วกดกระโดดเพื่อข้ามช่องว่างให้ไกลขึ้น");
   const endAt = gameStartedAt + durationSeconds * 1000;
   const effectiveNow = now || gameStartedAt;
   const secondsLeft = Math.max(0, (endAt - effectiveNow) / 1000);
-  const quizSecondsLeft = answerResult
-    ? 0
-    : quizStartedAt
-      ? Math.max(0, activeQuestion.seconds - (effectiveNow - quizStartedAt) / 1000)
-      : activeQuestion.seconds;
 
   const openQuiz = useCallback((forced = false) => {
     quizOpenRef.current = true;
-    timeoutSentRef.current = false;
     setAnswerResult(null);
     setQuizError("");
     setQuizStartedAt(Date.now());
@@ -219,7 +216,6 @@ export function JumpGame({
     setAnswerResult(null);
     setQuizError("");
     setQuizStartedAt(Date.now());
-    timeoutSentRef.current = false;
   }, [answerResult]);
 
   const submitAnswer = useCallback(async (answerIndex: number) => {
@@ -258,12 +254,6 @@ export function JumpGame({
   }, []);
 
   useEffect(() => {
-    if (!quizOpen || answerResult || quizSecondsLeft > 0 || timeoutSentRef.current) return;
-    timeoutSentRef.current = true;
-    void submitAnswer(-1);
-  }, [answerResult, quizOpen, quizSecondsLeft, submitAnswer]);
-
-  useEffect(() => {
     function keyDown(event: KeyboardEvent) {
       if (event.code === "ArrowLeft" || event.code === "KeyA") inputRef.current.left = true;
       if (event.code === "ArrowRight" || event.code === "KeyD") inputRef.current.right = true;
@@ -298,11 +288,10 @@ export function JumpGame({
       return;
     }
     const player = physicsRef.current;
-    if (player.jumps >= 2) return;
-    const isDouble = player.jumps === 1;
-    player.vy = isDouble ? 438 : 480;
-    player.jumps += 1;
-    energyRef.current = Math.max(0, energyRef.current - (isDouble ? 6 : 4));
+    if (player.jumps >= 1) return;
+    player.vy = 500;
+    player.jumps = 1;
+    energyRef.current = Math.max(0, energyRef.current - 4);
     setEnergy(Math.round(energyRef.current));
   }
 
@@ -317,14 +306,51 @@ export function JumpGame({
       const worldHeight = height / scale;
       const toScreenY = (worldY: number) => worldHeight - 116 - (worldY - player.cameraBottom);
 
+      const zone = Math.min(5, Math.floor(player.cameraBottom / 1_750));
+      const skyPalettes = [
+        ["#081d42", "#0c79a5", "#6de3d0"],
+        ["#2b174f", "#a34f79", "#ffb16f"],
+        ["#15163c", "#4b3e87", "#9d83d9"],
+        ["#07152f", "#163d69", "#3b7e9a"],
+        ["#04091b", "#111c45", "#293a70"],
+        ["#02040d", "#090e28", "#17244b"],
+      ];
+      const palette = skyPalettes[zone];
       const sky = context.createLinearGradient(0, 0, 0, height);
-      sky.addColorStop(0, "#091e48");
-      sky.addColorStop(0.56, "#0d78a3");
-      sky.addColorStop(1, "#6de3d0");
+      sky.addColorStop(0, palette[0]);
+      sky.addColorStop(0.56, palette[1]);
+      sky.addColorStop(1, palette[2]);
       context.fillStyle = sky;
       context.fillRect(0, 0, width, height);
       context.save();
       context.scale(scale, scale);
+
+      if (zone >= 2) {
+        context.fillStyle = "rgba(255,255,255,.72)";
+        for (let index = 0; index < 22; index += 1) {
+          const starX = (index * 83 + 19) % WORLD_WIDTH;
+          const starY = (index * 47 + player.cameraBottom * 0.08) % Math.max(220, worldHeight - 120);
+          const size = index % 4 === 0 ? 1.7 : 1;
+          context.beginPath();
+          context.arc(starX, starY, size, 0, Math.PI * 2);
+          context.fill();
+        }
+      }
+
+      const mountainBase = worldHeight - 44;
+      context.globalAlpha = zone < 3 ? 0.2 : 0.12;
+      context.fillStyle = zone < 2 ? "#123f55" : "#080d28";
+      context.beginPath();
+      context.moveTo(0, mountainBase);
+      for (let x = 0; x <= WORLD_WIDTH; x += 45) {
+        const peak = mountainBase - 45 - ((x * 7 + Math.floor(player.cameraBottom * 0.04)) % 74);
+        context.lineTo(x + 22, peak);
+        context.lineTo(x + 45, mountainBase);
+      }
+      context.lineTo(WORLD_WIDTH, worldHeight);
+      context.lineTo(0, worldHeight);
+      context.fill();
+      context.globalAlpha = 1;
 
       for (let index = 0; index < 9; index += 1) {
         const cloudY = ((index * 153 - player.cameraBottom * 0.18) % (worldHeight + 180)) - 60;
@@ -338,6 +364,24 @@ export function JumpGame({
         context.fill();
       }
       context.globalAlpha = 1;
+
+      if (zone === 0 || zone === 1) {
+        const balloonX = 38 + (player.cameraBottom * 0.025) % 270;
+        const balloonY = 205 - (player.cameraBottom * 0.05) % 170;
+        context.fillStyle = zone === 0 ? "#ff7b91" : "#ffd05b";
+        context.beginPath();
+        context.ellipse(balloonX, balloonY, 12, 16, 0, 0, Math.PI * 2);
+        context.fill();
+        context.strokeStyle = "rgba(255,255,255,.55)";
+        context.lineWidth = 1;
+        context.beginPath();
+        context.moveTo(balloonX - 5, balloonY + 13);
+        context.lineTo(balloonX - 3, balloonY + 24);
+        context.moveTo(balloonX + 5, balloonY + 13);
+        context.lineTo(balloonX + 3, balloonY + 24);
+        context.stroke();
+        roundedRect(context, balloonX - 5, balloonY + 22, 10, 7, 2, "#8f5638");
+      }
 
       platforms.forEach((platform, index) => {
         const screenY = toScreenY(platform.y);
@@ -373,18 +417,88 @@ export function JumpGame({
           context.moveTo(platform.x + platform.width - 7, screenY - 2);
           context.lineTo(platform.x + 7, screenY + 7);
           context.stroke();
+        } else if (platform.type === "stone") {
+          roundedRect(context, platform.x, screenY - 3, platform.width, 18, 6, "#687789");
+          context.fillStyle = "rgba(255,255,255,.16)";
+          for (let x = platform.x + 9; x < platform.x + platform.width - 8; x += 24) {
+            roundedRect(context, x, screenY + 1, 15, 5, 2, "rgba(255,255,255,.16)");
+          }
+        } else if (platform.type === "metal") {
+          roundedRect(context, platform.x, screenY - 2, platform.width, 16, 4, "#304966");
+          context.strokeStyle = "#70dbea";
+          context.lineWidth = 2;
+          context.beginPath();
+          context.moveTo(platform.x + 4, screenY);
+          context.lineTo(platform.x + platform.width - 4, screenY);
+          context.stroke();
+          context.fillStyle = "#b7ff3c";
+          context.beginPath();
+          context.arc(platform.x + 10, screenY + 7, 2, 0, Math.PI * 2);
+          context.arc(platform.x + platform.width - 10, screenY + 7, 2, 0, Math.PI * 2);
+          context.fill();
         } else {
           roundedRect(context, platform.x, screenY, platform.width, 15, 7, "#173f46");
           roundedRect(context, platform.x, screenY - 4, platform.width, 8, 5, index % 3 === 0 ? "#b7ee3e" : "#53e0a1");
         }
 
-        if (platform.doubleHint) {
-          context.fillStyle = "rgba(7,16,25,.78)";
-          roundedRect(context, platform.x + platform.width / 2 - 31, screenY + 20, 62, 28, 14, "rgba(7,16,25,.78)");
-          context.fillStyle = "#dfff5f";
-          context.font = "800 12px system-ui";
+        const decorX = platform.x + Math.min(platform.width - 18, Math.max(18, platform.width * 0.72));
+        if (platform.decor === "flag") {
+          context.strokeStyle = "#effcff";
+          context.lineWidth = 2;
+          context.beginPath();
+          context.moveTo(decorX, screenY - 4);
+          context.lineTo(decorX, screenY - 45);
+          context.stroke();
+          context.fillStyle = platform.summit === 0 ? "#00e5ff" : "#b7ff3c";
+          context.beginPath();
+          context.moveTo(decorX + 1, screenY - 44);
+          context.lineTo(decorX + 31, screenY - 35);
+          context.lineTo(decorX + 1, screenY - 24);
+          context.fill();
+          if (platform.summit !== null) {
+            roundedRect(context, platform.x + 10, screenY + 20, 94, 24, 12, "rgba(5,11,18,.76)");
+            context.fillStyle = "#eaffb8";
+            context.font = "800 10px system-ui";
+            context.textAlign = "center";
+            context.fillText(platform.summit === 0 ? "START" : `SUMMIT ${platform.summit}`, platform.x + 57, screenY + 36);
+          }
+        } else if (platform.decor === "plant") {
+          context.strokeStyle = "#153f31";
+          context.lineWidth = 3;
+          context.beginPath();
+          context.moveTo(decorX, screenY - 3);
+          context.lineTo(decorX, screenY - 23);
+          context.stroke();
+          context.fillStyle = "#72ef91";
+          context.beginPath();
+          context.ellipse(decorX - 6, screenY - 18, 7, 3, -0.5, 0, Math.PI * 2);
+          context.ellipse(decorX + 6, screenY - 13, 7, 3, 0.5, 0, Math.PI * 2);
+          context.fill();
+        } else if (platform.decor === "lamp") {
+          context.strokeStyle = "#23384a";
+          context.lineWidth = 3;
+          context.beginPath();
+          context.moveTo(decorX, screenY - 3);
+          context.lineTo(decorX, screenY - 27);
+          context.stroke();
+          context.fillStyle = "rgba(255,224,118,.2)";
+          context.beginPath();
+          context.arc(decorX, screenY - 29, 11, 0, Math.PI * 2);
+          context.fill();
+          roundedRect(context, decorX - 5, screenY - 35, 10, 12, 4, "#ffe57c");
+        } else if (platform.decor === "coin") {
+          context.fillStyle = "rgba(255,213,75,.22)";
+          context.beginPath();
+          context.arc(decorX, screenY - 25, 13, 0, Math.PI * 2);
+          context.fill();
+          context.fillStyle = "#ffd84b";
+          context.beginPath();
+          context.arc(decorX, screenY - 25, 8, 0, Math.PI * 2);
+          context.fill();
+          context.fillStyle = "#73520a";
+          context.font = "900 8px system-ui";
           context.textAlign = "center";
-          context.fillText("↗  ↗  2×", platform.x + platform.width / 2, screenY + 39);
+          context.fillText("฿", decorX, screenY - 22);
         }
       });
 
@@ -396,13 +510,40 @@ export function JumpGame({
       context.beginPath();
       context.moveTo(-10, 7);
       context.lineTo(-4, -2);
-      context.lineTo(1, 8);
+      context.lineTo(-25 - Math.min(8, Math.abs(player.vx) * 0.04), 13);
       context.fill();
+      roundedRect(context, -19, 9, 12, 22, 5, "#ff8c63");
+      context.fillStyle = "#ffe08a";
+      context.font = "900 8px system-ui";
+      context.textAlign = "center";
+      context.fillText("฿", -13, 23);
       context.fillStyle = "#30e0bd";
       context.beginPath();
       context.roundRect(-PLAYER_WIDTH / 2, 4, PLAYER_WIDTH, 30, 13);
       context.fill();
+      context.strokeStyle = "#136d72";
+      context.lineWidth = 4;
+      context.lineCap = "round";
+      context.beginPath();
+      context.moveTo(-13, 13);
+      context.lineTo(-20, 21 + Math.min(4, Math.abs(player.vy) * 0.01));
+      context.moveTo(13, 13);
+      context.lineTo(20, 19 - Math.min(4, Math.abs(player.vy) * 0.01));
+      context.stroke();
+      context.fillStyle = "#10263b";
+      context.beginPath();
+      context.ellipse(-8, 35, 7, 3.5, -0.08, 0, Math.PI * 2);
+      context.ellipse(8, 35, 7, 3.5, 0.08, 0, Math.PI * 2);
+      context.fill();
       context.fillStyle = "#dfff5f";
+      context.beginPath();
+      context.moveTo(-11, -8);
+      context.lineTo(-4, -17);
+      context.lineTo(0, -7);
+      context.moveTo(11, -8);
+      context.lineTo(4, -17);
+      context.lineTo(0, -7);
+      context.fill();
       context.beginPath();
       context.arc(0, 0, 14, 0, Math.PI * 2);
       context.fill();
@@ -550,6 +691,7 @@ export function JumpGame({
   }, [code, onRefresh, secondsLeft, token]);
 
   const difficulty = maxHeight < 250 ? "เริ่มต้น" : maxHeight < 650 ? "คล่องตัว" : maxHeight < 1100 ? "ท้าทาย" : "ยอดนักกระโดด";
+  const summitNumber = Math.min(6, Math.floor(maxHeight / 190) + 1);
 
   return (
     <section className="jump-game-shell">
@@ -562,25 +704,27 @@ export function JumpGame({
         <div className="energy-label"><span>⚡ พลังงาน</span><strong>{energy}/100</strong></div>
         <div className="energy-track"><span style={{ width: `${energy}%` }} /></div>
       </div>
-      <div className="jump-level-chip">ระดับ: {difficulty} · Quiz {score} คะแนน</div>
+      <div className="jump-level-chip">ยอดเขา {summitNumber}/6 · {difficulty} · Quiz {score} คะแนน</div>
       <canvas ref={canvasRef} className="jump-canvas" aria-label="เกมกระโดดขึ้นที่สูง" />
       {toast && <button className="jump-toast" onClick={() => setToast("")}>{toast}<span>×</span></button>}
       <div className="jump-controls" aria-label="ปุ่มควบคุมเกม">
-        <button
-          className="move-button"
-          onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); inputRef.current.left = true; }}
-          onPointerUp={() => { inputRef.current.left = false; }}
-          aria-label="เดินซ้าย"
-        >←</button>
         <button className="jump-button" onPointerDown={(event) => { event.preventDefault(); jump(); }} aria-label="กระโดด">
-          <span>↑</span><strong>กระโดด</strong><small>แตะซ้ำ = 2 จังหวะ</small>
+          <span>↑</span><strong>กระโดด</strong><small>กดได้เมื่อแตะพื้น</small>
         </button>
-        <button
-          className="move-button"
-          onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); inputRef.current.right = true; }}
-          onPointerUp={() => { inputRef.current.right = false; }}
-          aria-label="เดินขวา"
-        >→</button>
+        <div className="move-pad" aria-label="ปุ่มเดินซ้ายและขวา">
+          <button
+            className="move-button"
+            onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); inputRef.current.left = true; }}
+            onPointerUp={() => { inputRef.current.left = false; }}
+            aria-label="เดินซ้าย"
+          >←</button>
+          <button
+            className="move-button"
+            onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); inputRef.current.right = true; }}
+            onPointerUp={() => { inputRef.current.right = false; }}
+            aria-label="เดินขวา"
+          >→</button>
+        </div>
       </div>
 
       {quizOpen && (
@@ -590,9 +734,9 @@ export function JumpGame({
               <>
                 <header>
                   <div><span className="quiz-energy-icon">⚡</span><div><p>เติมพลังด้วย Quiz</p><small>ข้อ {activeQuestion.number}/{activeQuestion.total}</small></div></div>
-                  <strong className={quizSecondsLeft <= 5 ? "urgent" : ""}>{Math.ceil(quizSecondsLeft)} วิ</strong>
+                  <strong className="no-question-timer">ไม่จับเวลา</strong>
                 </header>
-                <div className="quiz-time-track"><span style={{ width: `${Math.max(0, quizSecondsLeft / activeQuestion.seconds) * 100}%` }} /></div>
+                <p className="quiz-loop-note">คำถามจะวนต่อเนื่องจนหมดเวลาการแข่งขัน</p>
                 <h2>{activeQuestion.prompt}</h2>
                 <div className="jump-answer-grid">
                   {activeQuestion.options.map((option, index) => (

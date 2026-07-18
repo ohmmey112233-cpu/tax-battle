@@ -53,11 +53,10 @@ export async function POST(
     return Response.json({ error: "ไม่พบคำถามในห้องนี้" }, { status: 409, headers: noStoreHeaders });
   }
   const responseMs = Number.isFinite(payload.responseMs)
-    ? Math.round(Math.max(0, Math.min(room.questionSeconds * 1000 + 1_000, Number(payload.responseMs))))
-    : room.questionSeconds * 1000;
+    ? Math.round(Math.max(0, Math.min(room.gameDurationSeconds * 1000, Number(payload.responseMs))))
+    : 0;
   const isCorrect = payload.answerIndex === question.correctIndex;
-  const timeRatio = Math.max(0, 1 - responseMs / (room.questionSeconds * 1000));
-  const points = isCorrect ? 300 + Math.round(200 * timeRatio) : 0;
+  const points = isCorrect ? 400 : 0;
   const energyGain = isCorrect ? 40 : 20;
   const nextEnergy = Math.min(100, player.energy + energyGain);
   const nextQuestionIndex = player.jumpQuestionIndex + 1;

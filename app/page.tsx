@@ -570,18 +570,20 @@ function SetupScreen({ onBack, onCreated }: {
           </div>
         </section>
 
-        <section className="setup-step">
-          <div className="step-title"><span className="step-number">3</span><div><h2>เวลาต่อข้อ</h2><p>ใช้เวลาเดียวกันสำหรับทุกคำถาม</p></div></div>
-          <div className="segmented" aria-label="เวลาต่อข้อ">
-            {QUESTION_TIMES.map((seconds) => (
-              <button key={seconds} className={questionSeconds === seconds ? "active" : ""} onClick={() => setQuestionSeconds(seconds)}>{seconds} วิ</button>
-            ))}
-          </div>
-        </section>
+        {gameMode === "quiz" && (
+          <section className="setup-step">
+            <div className="step-title"><span className="step-number">3</span><div><h2>เวลาต่อข้อ</h2><p>ใช้เวลาเดียวกันสำหรับทุกคำถาม</p></div></div>
+            <div className="segmented" aria-label="เวลาต่อข้อ">
+              {QUESTION_TIMES.map((seconds) => (
+                <button key={seconds} className={questionSeconds === seconds ? "active" : ""} onClick={() => setQuestionSeconds(seconds)}>{seconds} วิ</button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {gameMode === "jump" && (
           <section className="setup-step jump-duration-step">
-            <div className="step-title"><span className="step-number">4</span><div><h2>เวลาแข่งขัน Jump Battle</h2><p>ทุกคนเริ่มและจบพร้อมกัน ผู้คุมเห็นอันดับความสูงแบบสด</p></div></div>
+            <div className="step-title"><span className="step-number">3</span><div><h2>เวลาแข่งขัน Jump Battle</h2><p>คำถามไม่จับเวลารายข้อและจะวนซ้ำจนหมดเวลารอบ</p></div></div>
             <div className="segmented" aria-label="เวลาแข่งขันเกมกระโดด">
               {JUMP_DURATIONS.map((minutes) => (
                 <button key={minutes} className={jumpDurationMinutes === minutes ? "active" : ""} onClick={() => setJumpDurationMinutes(minutes)}>{minutes} นาที</button>
@@ -595,7 +597,7 @@ function SetupScreen({ onBack, onCreated }: {
       </div>
 
       <div className="setup-actionbar">
-        <div><span>{selectedCount === questionCount ? `พร้อมสร้างห้อง ${gameMode === "jump" ? "Jump Battle" : "Quiz Battle"}` : `เลือกคำถามอีก ${questionCount - selectedCount} ข้อ`}</span><strong>{selectedCount}/{questionCount} ข้อ · {questionSeconds} วินาที/ข้อ{gameMode === "jump" ? ` · ${jumpDurationMinutes} นาที` : ""}</strong></div>
+        <div><span>{selectedCount === questionCount ? `พร้อมสร้างห้อง ${gameMode === "jump" ? "Jump Battle" : "Quiz Battle"}` : `เลือกคำถามอีก ${questionCount - selectedCount} ข้อ`}</span><strong>{gameMode === "jump" ? `${selectedCount} ข้อวนซ้ำ · ไม่จับเวลารายข้อ · ${jumpDurationMinutes} นาที` : `${selectedCount}/${questionCount} ข้อ · ${questionSeconds} วินาที/ข้อ`}</strong></div>
         <button className="start-button" onClick={createRoom} disabled={busy || selectedCount !== questionCount}>
           {busy ? "กำลังสร้างห้อง…" : "สร้างห้องและรับ QR Code"} <span>→</span>
         </button>
@@ -962,7 +964,7 @@ function HostScreen({ code, token }: { code: string; token: string }) {
               <div className="lobby-status-stack">
                 <StatusPill tone="lime">กำลังรอ</StatusPill>
                 <StatusPill>{snapshot.room.gameMode === "jump" ? `Jump Battle · ${snapshot.room.gameDurationSeconds / 60} นาที` : "Quiz Battle"}</StatusPill>
-                <StatusPill>{snapshot.room.questionCount} ข้อ · {snapshot.room.questionSeconds} วินาที/ข้อ</StatusPill>
+                <StatusPill>{snapshot.room.gameMode === "jump" ? `${snapshot.room.questionCount} ข้อวนซ้ำ · ไม่จับเวลารายข้อ` : `${snapshot.room.questionCount} ข้อ · ${snapshot.room.questionSeconds} วินาที/ข้อ`}</StatusPill>
               </div>
             </div>
             <div className="roster-list">
